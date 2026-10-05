@@ -2,6 +2,7 @@ import 'package:sqflite/sqflite.dart';
 
 import '../database/database_helper.dart';
 import '../models/hatchery_model.dart';
+import 'hatchery_machine_repository.dart';
 import 'sync_tombstone_repository.dart';
 
 class HatcheryRepository {
@@ -132,10 +133,33 @@ class HatcheryRepository {
         where: 'customerId = ?',
         whereArgs: [customerId],
       );
+      final hatcheryIds = rows
+          .map((row) => row['id']?.toString())
+          .whereType<String>()
+          .toList(growable: false);
+      if (hatcheryIds.isNotEmpty) {
+        final placeholders = List.filled(hatcheryIds.length, '?').join(', ');
+        final machineRows = await txn.query(
+          HatcheryMachineRepository.tableName,
+          columns: ['id'],
+          where: 'hatcheryId IN ($placeholders)',
+          whereArgs: hatcheryIds,
+        );
+        await SyncTombstoneRepository.queueDeletesWithExecutor(
+          txn,
+          HatcheryMachineRepository.tableName,
+          machineRows.map((row) => row['id']),
+        );
+        await txn.delete(
+          HatcheryMachineRepository.tableName,
+          where: 'hatcheryId IN ($placeholders)',
+          whereArgs: hatcheryIds,
+        );
+      }
       await SyncTombstoneRepository.queueDeletesWithExecutor(
         txn,
         'hatcheries',
-        rows.map((row) => row['id']),
+        hatcheryIds,
       );
       await txn.delete(
         'hatcheries',
@@ -148,6 +172,22 @@ class HatcheryRepository {
   Future<void> deleteHatchery(String id) async {
     final db = await dbHelper.db;
     await db.transaction<void>((txn) async {
+      final machineRows = await txn.query(
+        HatcheryMachineRepository.tableName,
+        columns: ['id'],
+        where: 'hatcheryId = ?',
+        whereArgs: [id],
+      );
+      await SyncTombstoneRepository.queueDeletesWithExecutor(
+        txn,
+        HatcheryMachineRepository.tableName,
+        machineRows.map((row) => row['id']),
+      );
+      await txn.delete(
+        HatcheryMachineRepository.tableName,
+        where: 'hatcheryId = ?',
+        whereArgs: [id],
+      );
       await SyncTombstoneRepository.queueDeleteWithExecutor(
         txn,
         'hatcheries',

@@ -3,12 +3,14 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/data/database/database_helper.dart';
 import 'package:hatchaudit/data/models/audit_model.dart';
+import 'package:hatchaudit/data/models/photo_model.dart';
 import 'package:hatchaudit/data/models/panel_sample_schema.dart';
 import 'package:hatchaudit/data/models/sampling_scope.dart';
 import 'package:hatchaudit/data/models/station_sample_model.dart';
 import 'package:hatchaudit/data/repositories/benchmark_lookup.dart';
 import 'package:hatchaudit/data/repositories/panel_sample_repository.dart';
 import 'package:hatchaudit/data/repositories/panel_sampling_state_repository.dart';
+import 'package:hatchaudit/data/repositories/photo_repository.dart';
 import 'package:hatchaudit/features/audits/logic/egg_station_reconstruction.dart';
 import 'package:hatchaudit/features/audits/providers/audit_provider.dart';
 import 'package:hatchaudit/features/audits/screens/audit_context_screen.dart';
@@ -288,4 +290,238 @@ void main() {
       },
     );
   }
+
+  test(
+    'chick quality values and photos retain sample ownership across save, rename, reopen, and sibling deletion',
+    () async {
+      final trees = PanelSamplingStateRepository(databaseHelper: helper);
+      final panels = PanelSampleRepository(databaseHelper: helper);
+      final photos = PhotoRepository();
+      final context = AuditContext(
+        auditType: 'Chicks',
+        customerId: 'c',
+        flockId: 'f',
+        hatcheryId: 'h',
+        breed: 'Ross308',
+        date: '2026-10-05',
+      );
+      final provider = AuditProvider(autosaveEnabled: false);
+      provider.initialize(context, sessionId: 'session', notify: false);
+      await provider.loadPanelSamplingState('chick_quality');
+
+      Future<SamplingNode> addLeaf(String houseCode) async {
+        final house = await provider.addPanelScopeIdentity(
+          'chick_quality',
+          level: SamplingScopeLevel.setter,
+          parentId: null,
+          identity: {'setter': houseCode, 'hatcher': 'H01'},
+        );
+        return provider.addPanelTerminalSample(
+          'chick_quality',
+          parentId: house.id,
+        );
+      }
+
+      final leafA = await addLeaf('H01');
+      provider.updateField('pasgarSampleSize', 30);
+      provider.updateField('notes', 'A only notes');
+      final leafB = await addLeaf('H02');
+      await provider.selectPanelSample('chick_quality', leafB.sampleId!);
+      provider.updateField('pasgarSampleSize', 50);
+      provider.updateField('notes', 'B only notes');
+
+      final coordinator = AuditPanelSaveCoordinator(
+        panelSampleRepository: panels,
+        benchmarkLookup: BenchmarkLookup(dbHelper: helper),
+        context: () => context,
+        activeSessionId: () => 'session',
+        stationSamples: () => const [],
+        chickWeightSamples: () => const [],
+      );
+      Future<void> save(AuditProvider source) async {
+        await coordinator.savePanelTables(
+          panelSavePairs: const [],
+          draftsToSave: const [],
+          removedStationSampleIds: const [],
+          samplingManagedTables: source.samplingManagedPanelKeys,
+          samplingSavePairs: source.samplingPanelSavePairs(),
+        );
+      }
+
+      await save(provider);
+      final initialRows = await panels.getRowsBySessionId(
+        'chick_quality',
+        'session',
+      );
+      expect(initialRows, hasLength(2));
+      final rowIdBySample = {
+        for (final row in initialRows)
+          row['sampleId'] as String: row['id'] as String,
+      };
+      final rowA = rowIdBySample[leafA.sampleId]!;
+      final rowB = rowIdBySample[leafB.sampleId]!;
+      expect(rowA, isNot(rowB));
+
+      await photos.saveLocalPhoto(
+        PhotoModel(
+          id: 'photo-a',
+          filePath: 'https://example.test/a.jpg',
+          createdAt: DateTime(2026, 10, 5, 9),
+          sessionId: 'session',
+          panelName: 'chick_quality',
+          panelRowId: rowA,
+          fieldKey: 'pasgarBeakPhoto',
+        ),
+      );
+      await photos.saveLocalPhoto(
+        PhotoModel(
+          id: 'photo-b',
+          filePath: 'https://example.test/b.jpg',
+          createdAt: DateTime(2026, 10, 5, 10),
+          sessionId: 'session',
+          panelName: 'chick_quality',
+          panelRowId: rowB,
+          fieldKey: 'pasgarBeakPhoto',
+        ),
+      );
+
+      Future<StationReconstruction> reopen() async {
+        final rows = await panels.getRowsBySessionId(
+          'chick_quality',
+          'session',
+        );
+        final state = await trees.loadOrCreateDefault(
+          sessionId: 'session',
+          panelKey: 'chick_quality',
+        );
+        final result = reconstructStation(
+          stationKey: 'chicks',
+          sessionId: 'session',
+          context: AuditContextData(
+            auditType: 'Chicks',
+            customerId: 'c',
+            flockId: 'f',
+            hatcheryId: 'h',
+            breed: 'Ross308',
+            date: '2026-10-05',
+          ),
+          rowsByPanel: {
+            'chick_quality': rows
+                .map((r) => Map<String, dynamic>.from(r))
+                .toList(),
+          },
+        );
+        final hydrated = overlayPanelPhotos(
+          result,
+          await photos.getBySessionId('session'),
+        );
+        expect(state.samples.map((sample) => sample.sampleId).toSet(), {
+          leafA.sampleId,
+          leafB.sampleId,
+        });
+        return hydrated;
+      }
+
+      var reopened = await reopen();
+      final restored = reopened.samplingDraftsByPanel['chick_quality']!;
+      expect(restored[leafA.sampleId]!.pasgarSampleSize, 30);
+      expect(restored[leafA.sampleId]!.notes, 'A only notes');
+      expect(restored[leafB.sampleId]!.pasgarSampleSize, 50);
+      expect(restored[leafB.sampleId]!.notes, 'B only notes');
+      final draftBySample = {
+        for (var i = 0; i < reopened.stationSamples.length; i++)
+          reopened.stationSamples[i].sampleId!: reopened.stationAudits[i],
+      };
+      expect(
+        draftBySample[leafA.sampleId]!.pasgarBeakPhoto,
+        'https://example.test/a.jpg',
+      );
+      expect(
+        draftBySample[leafB.sampleId]!.pasgarBeakPhoto,
+        'https://example.test/b.jpg',
+      );
+
+      final reopenedProvider = AuditProvider(autosaveEnabled: false);
+      reopenedProvider.initialize(
+        context,
+        sessionId: 'session',
+        notify: false,
+        existingStationSamples: reopened.stationSamples,
+        samplingDraftsByPanel: reopened.samplingDraftsByPanel,
+      );
+      await reopenedProvider.loadPanelSamplingState('chick_quality');
+      final houseA = reopenedProvider
+          .samplingStateFor('chick_quality')!
+          .nodes
+          .singleWhere((node) => node.identity['setter'] == 'H01');
+      await reopenedProvider.editPanelScopeIdentity(
+        'chick_quality',
+        houseA.id,
+        const {'setter': 'H01-renamed', 'hatcher': 'H01'},
+      );
+      await save(reopenedProvider);
+      reopenedProvider.dispose();
+
+      reopened = await reopen();
+      final renamedPath = reopened.stationSamples.singleWhere(
+        (sample) => sample.sampleId == leafA.sampleId,
+      );
+      expect(renamedPath.id, rowA);
+      expect(renamedPath.sampleId, leafA.sampleId);
+      expect(renamedPath.setterNo, 'H01-renamed');
+      final renamedDrafts = reopened.samplingDraftsByPanel['chick_quality']!;
+      expect(renamedDrafts[leafA.sampleId]!.pasgarSampleSize, 30);
+      expect(renamedDrafts[leafA.sampleId]!.notes, 'A only notes');
+      expect(renamedDrafts[leafB.sampleId]!.pasgarSampleSize, 50);
+      expect(renamedDrafts[leafB.sampleId]!.notes, 'B only notes');
+      final renamedDraftBySample = {
+        for (var i = 0; i < reopened.stationSamples.length; i++)
+          reopened.stationSamples[i].sampleId!: reopened.stationAudits[i],
+      };
+      expect(
+        renamedDraftBySample[leafA.sampleId]!.pasgarBeakPhoto,
+        'https://example.test/a.jpg',
+      );
+      expect(
+        renamedDraftBySample[leafB.sampleId]!.pasgarBeakPhoto,
+        'https://example.test/b.jpg',
+      );
+
+      final setterANode = (await trees.loadOrCreateDefault(
+        sessionId: 'session',
+        panelKey: 'chick_quality',
+      )).nodes.singleWhere((node) => node.identity['setter'] == 'H01-renamed');
+      await trees.deleteSubtree(nodeId: setterANode.id);
+      final survivingRows = await panels.getRowsBySessionId(
+        'chick_quality',
+        'session',
+      );
+      expect(survivingRows.map((row) => row['id']), [rowB]);
+      expect(survivingRows.single['sampleId'], leafB.sampleId);
+      expect(survivingRows.single['pasgarSampleSize'], 50);
+      expect(survivingRows.single['notes'], 'B only notes');
+      expect(
+        (await photos.getBySessionId('session')).map((photo) => photo.id),
+        ['photo-b'],
+      );
+      final db = await helper.db;
+      expect(
+        await db.query(
+          'sync_tombstones',
+          where: 'tableName = ? AND rowId = ?',
+          whereArgs: ['chick_quality', rowA],
+        ),
+        hasLength(1),
+      );
+      expect(
+        await db.query(
+          'sync_tombstones',
+          where: 'tableName = ? AND rowId = ?',
+          whereArgs: ['photos', 'photo-a'],
+        ),
+        hasLength(1),
+      );
+      provider.dispose();
+    },
+  );
 }

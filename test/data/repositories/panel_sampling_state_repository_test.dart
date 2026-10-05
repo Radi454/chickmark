@@ -775,6 +775,61 @@ void main() {
     },
   );
 
+  test('paired sampling identity retains registered machine UUIDs', () async {
+    await repository.loadOrCreateDefault(
+      sessionId: 'session-1',
+      panelKey: 'chick_quality',
+    );
+    final pair = await repository.addScopeIdentity(
+      sessionId: 'session-1',
+      panelKey: 'chick_quality',
+      parentId: null,
+      level: SamplingScopeLevel.setter,
+      identity: const {
+        'setter': 'S01',
+        'hatcher': 'H01',
+        'setterMachineId': 'setter-uuid',
+        'hatcherMachineId': 'hatcher-uuid',
+      },
+    );
+
+    expect(pair.identity['setterMachineId'], 'setter-uuid');
+    expect(pair.identity['hatcherMachineId'], 'hatcher-uuid');
+    await expectLater(
+      repository.addScopeIdentity(
+        sessionId: 'session-1',
+        panelKey: 'chick_quality',
+        parentId: null,
+        level: SamplingScopeLevel.setter,
+        identity: const {
+          'setter': 'S01',
+          'hatcher': 'H01',
+          'setterMachineId': 'different-setter-uuid',
+          'hatcherMachineId': 'different-hatcher-uuid',
+        },
+      ),
+      throwsArgumentError,
+    );
+
+    await repository.updateScopeIdentity(
+      nodeId: pair.id,
+      identity: const {
+        'setter': 'S02',
+        'hatcher': 'H02',
+        'setterMachineId': 'setter-uuid',
+        'hatcherMachineId': 'hatcher-uuid',
+      },
+    );
+    final updated = await repository.loadOrCreateDefault(
+      sessionId: 'session-1',
+      panelKey: 'chick_quality',
+    );
+    final persisted = updated.nodes.singleWhere((node) => node.id == pair.id);
+    expect(persisted.identity['setterMachineId'], 'setter-uuid');
+    expect(persisted.identity['hatcherMachineId'], 'hatcher-uuid');
+    expect(persisted.identity['setter'], 'S02');
+  });
+
   test('restores a terminal under the deleted branch parent only', () async {
     await repository.loadOrCreateDefault(
       sessionId: 'session-1',

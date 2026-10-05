@@ -2606,3 +2606,8 @@ Future<void> _applyV82Upgrade(Database db) async {
   await _dropPanelUniqueRowIndexes(db);
   await _ensurePanelUniqueRowIndexes(db);
 }
+
+/// v83 adds the hatchery-owned Setter/Hatcher equipment and capacity catalog.
+Future<void> _applyV83Upgrade(Database db) async {
+  await _createHatcheryMachineTable(db);
+}

@@ -20,6 +20,7 @@ import 'package:hatchaudit/data/repositories/egg_grading_repository.dart';
 import 'package:hatchaudit/data/repositories/flock_repository.dart';
 import 'package:hatchaudit/data/repositories/govee_capture_repository.dart';
 import 'package:hatchaudit/data/repositories/hatchery_repository.dart';
+import 'package:hatchaudit/data/repositories/hatchery_machine_repository.dart';
 import 'package:hatchaudit/data/repositories/lab_analysis_repository.dart';
 import 'package:hatchaudit/data/repositories/panel_sample_repository.dart';
 import 'package:hatchaudit/data/repositories/panel_sampling_state_repository.dart';
@@ -47,6 +48,9 @@ class _MockEggGradingRepository extends Mock implements EggGradingRepository {}
 class _MockFlockRepository extends Mock implements FlockRepository {}
 
 class _MockHatcheryRepository extends Mock implements HatcheryRepository {}
+
+class _MockHatcheryMachineRepository extends Mock
+    implements HatcheryMachineRepository {}
 
 class _MockLabAnalysisRepository extends Mock
     implements LabAnalysisRepository {}
@@ -89,6 +93,7 @@ void main() {
   late _MockEggGradingRepository eggGrading;
   late _MockFlockRepository flocks;
   late _MockHatcheryRepository hatcheries;
+  late _MockHatcheryMachineRepository hatcheryMachines;
   late _MockLabAnalysisRepository labAnalysis;
   late _MockActivityLogRepository activityLog;
   late _MockPhotoRepository photos;
@@ -120,6 +125,7 @@ void main() {
     eggGrading = _MockEggGradingRepository();
     flocks = _MockFlockRepository();
     hatcheries = _MockHatcheryRepository();
+    hatcheryMachines = _MockHatcheryMachineRepository();
     labAnalysis = _MockLabAnalysisRepository();
     activityLog = _MockActivityLogRepository();
     photos = _MockPhotoRepository();
@@ -206,6 +212,19 @@ void main() {
       () => bmk.markOperationalRowsFailed(any(), any()),
     ).thenAnswer((_) async {});
     when(() => hatcheries.getDirtyRows()).thenAnswer((_) async => const []);
+    when(
+      () => hatcheryMachines.getDirtyRows(),
+    ).thenAnswer((_) async => const []);
+    when(() => hatcheryMachines.markRowsSynced(any())).thenAnswer((_) async {});
+    when(
+      () => hatcheryMachines.markRowsFailed(any(), any()),
+    ).thenAnswer((_) async {});
+    when(
+      () => hatcheryMachines.getRowSyncStatus(any()),
+    ).thenAnswer((_) async => null);
+    when(
+      () => hatcheryMachines.upsertRemoteRow(any()),
+    ).thenAnswer((_) async {});
     when(() => hatcheries.markRowsSynced(any())).thenAnswer((_) async {});
     when(
       () => hatcheries.markRowsFailed(any(), any()),
@@ -388,6 +407,7 @@ void main() {
         upsertCustomer: any(named: 'upsertCustomer'),
         upsertFlock: any(named: 'upsertFlock'),
         upsertHatchery: any(named: 'upsertHatchery'),
+        upsertHatcheryMachine: any(named: 'upsertHatcheryMachine'),
         upsertPhoto: any(named: 'upsertPhoto'),
         upsertBmkBreed: any(named: 'upsertBmkBreed'),
         upsertBmkEggBreakout: any(named: 'upsertBmkEggBreakout'),
@@ -418,6 +438,7 @@ void main() {
     dashboardActionRepository: actions,
     flockRepository: flocks,
     hatcheryRepository: hatcheries,
+    hatcheryMachineRepository: hatcheryMachines,
     labAnalysisRepository: labAnalysis,
     activityLogRepository: activityLog,
     photoRepository: photos,
@@ -434,6 +455,32 @@ void main() {
     photoSyncService: photoSync,
     retryPolicy: retryPolicy,
   );
+
+  Future<void> Function(Map<String, dynamic>) hatcheryMachinePullCallback() =>
+      verify(
+            () => supabase.pullFromSupabase(
+              upsertCustomer: any(named: 'upsertCustomer'),
+              upsertFlock: any(named: 'upsertFlock'),
+              upsertHatchery: any(named: 'upsertHatchery'),
+              upsertHatcheryMachine: captureAny(named: 'upsertHatcheryMachine'),
+              upsertAuditSession: any(named: 'upsertAuditSession'),
+              upsertPhoto: any(named: 'upsertPhoto'),
+              upsertBmkBreed: any(named: 'upsertBmkBreed'),
+              upsertBmkEggBreakout: any(named: 'upsertBmkEggBreakout'),
+              upsertBmkOperationalStandard: any(
+                named: 'upsertBmkOperationalStandard',
+              ),
+              upsertGoveeDailyCapture: any(named: 'upsertGoveeDailyCapture'),
+              upsertDashboardAction: any(named: 'upsertDashboardAction'),
+              upsertLabAnalysisRow: any(named: 'upsertLabAnalysisRow'),
+              upsertPanelRow: any(named: 'upsertPanelRow'),
+              upsertChickObservation: any(named: 'upsertChickObservation'),
+              upsertEggGradingCount: any(named: 'upsertEggGradingCount'),
+              upsertPanelSamplingRow: any(named: 'upsertPanelSamplingRow'),
+              upsertSyncTombstone: any(named: 'upsertSyncTombstone'),
+            ),
+          ).captured.single
+          as Future<void> Function(Map<String, dynamic>);
 
   test(
     'pushes only dirty sessions/panels and never legacy audit or sample tables',
@@ -486,6 +533,167 @@ void main() {
           () => supabase.upsertRows('${panel.tableName}_samples', any()),
         );
       }
+    },
+  );
+
+  test(
+    'pushes dirty hatchery machines after hatcheries and before audits',
+    () async {
+      when(() => hatcheries.getDirtyRows()).thenAnswer(
+        (_) async => [
+          {
+            'id': 'hatchery-1',
+            'customerId': 'customer-1',
+            'syncStatus': 'pending',
+          },
+        ],
+      );
+      when(() => hatcheryMachines.getDirtyRows()).thenAnswer(
+        (_) async => [
+          {
+            'id': 'machine-1',
+            'hatcheryId': 'hatchery-1',
+            'kind': 'setter',
+            'code': 'S-01',
+            'name': 'Setter 1',
+            'batchSize': 120000,
+            'trolleyCapacity': 120,
+            'traySize': 150,
+            'trolleyCount': 80,
+            'traysPerTrolley': 100,
+            'syncStatus': 'pending',
+            'dirtyAt': '2026-10-05T09:00:00Z',
+          },
+        ],
+      );
+
+      await service().run();
+
+      final order = verifyInOrder([
+        () => supabase.upsertRowsStrict('hatcheries', any()),
+        () => supabase.upsertRowsStrict('hatchery_machines', captureAny()),
+        () => supabase.upsertRowsStrict('audit_sessions', any()),
+      ]);
+      final payload = order[1].captured.single as List<Map<String, dynamic>>;
+      expect(payload.single['hatcheryId'], 'hatchery-1');
+      expect(payload.single['batchSize'], 120000);
+      expect(payload.single, isNot(contains('syncStatus')));
+      expect(payload.single, isNot(contains('dirtyAt')));
+      verify(() => hatcheryMachines.markRowsSynced(['machine-1'])).called(1);
+    },
+  );
+
+  test(
+    'isolates a rejected hatchery row so valid hatchery and session still push',
+    () async {
+      final events = <String>[];
+      when(() => hatcheries.getDirtyRows()).thenAnswer(
+        (_) async => [
+          {
+            'id': 'hatchery-bad',
+            'customerId': 'missing-customer',
+            'name': 'Orphan hatchery',
+            'syncStatus': 'pending',
+            'dirtyAt': '2026-10-05T09:00:00Z',
+          },
+          {
+            'id': 'hatchery-qa',
+            'customerId': 'customer-1',
+            'name': 'QA hatchery',
+            'syncStatus': 'pending',
+            'dirtyAt': '2026-10-05T09:01:00Z',
+          },
+        ],
+      );
+      when(() => sessions.getDirtySessionRows()).thenAnswer(
+        (_) async => [
+          AuditSessionModel(
+            id: 'session-qa',
+            customerId: 'customer-1',
+            flockId: 'flock-1',
+            hatcheryId: 'hatchery-qa',
+            date: DateTime(2026, 10, 5),
+            createdAt: DateTime(2026, 10, 5),
+            updatedAt: DateTime(2026, 10, 5),
+          ),
+        ],
+      );
+      when(() => supabase.upsertRowsStrict(any(), any())).thenAnswer((
+        invocation,
+      ) async {
+        final table = invocation.positionalArguments[0] as String;
+        final rows =
+            invocation.positionalArguments[1] as List<Map<String, dynamic>>;
+        if (table == 'hatcheries') {
+          events.add('hatcheries:${rows.map((row) => row['id']).join(',')}');
+          if (rows.length > 1 || rows.single['id'] == 'hatchery-bad') {
+            throw StateError('missing customer foreign key');
+          }
+        } else if (table == 'audit_sessions') {
+          events.add('audit_sessions');
+        }
+      });
+
+      final outcome = await service().run();
+
+      expect(outcome.failed, 1);
+      expect(outcome.failedTables, contains('hatcheries'));
+      verify(
+        () => hatcheries.markRowsFailed(['hatchery-bad'], any()),
+      ).called(1);
+      verify(() => hatcheries.markRowsSynced(['hatchery-qa'])).called(1);
+      verify(() => sessions.markSessionsSynced(['session-qa'])).called(1);
+      expect(events, contains('hatcheries:hatchery-bad,hatchery-qa'));
+      expect(events, contains('hatcheries:hatchery-qa'));
+      expect(
+        events.indexOf('hatcheries:hatchery-qa'),
+        lessThan(events.indexOf('audit_sessions')),
+      );
+    },
+  );
+
+  test(
+    'push-capable pulls keep a dirty local hatchery machine for retry',
+    () async {
+      when(
+        () => hatcheryMachines.getRowSyncStatus('machine-1'),
+      ).thenAnswer((_) async => 'pending');
+
+      await service().run();
+
+      await hatcheryMachinePullCallback()({
+        'id': 'machine-1',
+        'hatchery_id': 'hatchery-1',
+        'kind': 'setter',
+        'code': 'S-01',
+        'name': 'Old remote name',
+      });
+
+      verify(() => hatcheryMachines.getRowSyncStatus('machine-1')).called(1);
+      verifyNever(() => hatcheryMachines.upsertRemoteRow(any()));
+    },
+  );
+
+  test(
+    'pull-only devices apply remote hatchery machines despite local dirt',
+    () async {
+      when(
+        () => hatcheryMachines.getRowSyncStatus('machine-1'),
+      ).thenAnswer((_) async => 'pending');
+
+      await service().run(canPush: false);
+
+      final remoteRow = {
+        'id': 'machine-1',
+        'hatchery_id': 'hatchery-1',
+        'kind': 'setter',
+        'code': 'S-01',
+        'name': 'Remote name',
+      };
+      await hatcheryMachinePullCallback()(remoteRow);
+
+      verifyNever(() => hatcheryMachines.getRowSyncStatus('machine-1'));
+      verify(() => hatcheryMachines.upsertRemoteRow(remoteRow)).called(1);
     },
   );
 
@@ -796,6 +1004,7 @@ void main() {
         upsertCustomer: any(named: 'upsertCustomer'),
         upsertFlock: any(named: 'upsertFlock'),
         upsertHatchery: any(named: 'upsertHatchery'),
+        upsertHatcheryMachine: any(named: 'upsertHatcheryMachine'),
         upsertPhoto: any(named: 'upsertPhoto'),
         upsertBmkBreed: any(named: 'upsertBmkBreed'),
         upsertBmkEggBreakout: any(named: 'upsertBmkEggBreakout'),
@@ -959,6 +1168,7 @@ void main() {
           upsertCustomer: any(named: 'upsertCustomer'),
           upsertFlock: any(named: 'upsertFlock'),
           upsertHatchery: any(named: 'upsertHatchery'),
+          upsertHatcheryMachine: any(named: 'upsertHatcheryMachine'),
           upsertPhoto: any(named: 'upsertPhoto'),
           upsertBmkBreed: any(named: 'upsertBmkBreed'),
           upsertBmkEggBreakout: any(named: 'upsertBmkEggBreakout'),
@@ -998,6 +1208,7 @@ void main() {
           upsertCustomer: any(named: 'upsertCustomer'),
           upsertFlock: any(named: 'upsertFlock'),
           upsertHatchery: any(named: 'upsertHatchery'),
+          upsertHatcheryMachine: any(named: 'upsertHatcheryMachine'),
           upsertPhoto: any(named: 'upsertPhoto'),
           upsertBmkBreed: any(named: 'upsertBmkBreed'),
           upsertBmkEggBreakout: any(named: 'upsertBmkEggBreakout'),
@@ -1079,6 +1290,7 @@ void main() {
           upsertCustomer: any(named: 'upsertCustomer'),
           upsertFlock: any(named: 'upsertFlock'),
           upsertHatchery: any(named: 'upsertHatchery'),
+          upsertHatcheryMachine: any(named: 'upsertHatcheryMachine'),
           upsertPhoto: any(named: 'upsertPhoto'),
           upsertBmkBreed: any(named: 'upsertBmkBreed'),
           upsertBmkEggBreakout: any(named: 'upsertBmkEggBreakout'),
@@ -1125,6 +1337,7 @@ void main() {
           upsertCustomer: any(named: 'upsertCustomer'),
           upsertFlock: any(named: 'upsertFlock'),
           upsertHatchery: any(named: 'upsertHatchery'),
+          upsertHatcheryMachine: any(named: 'upsertHatcheryMachine'),
           upsertPhoto: any(named: 'upsertPhoto'),
           upsertBmkBreed: any(named: 'upsertBmkBreed'),
           upsertBmkEggBreakout: any(named: 'upsertBmkEggBreakout'),
@@ -1334,6 +1547,157 @@ void main() {
   });
 
   test(
+    'failed local customer sector push survives stale operational pull',
+    () async {
+      var appliedRemoteRows = 0;
+      when(() => operational.upsertRemoteRow(any(), any())).thenAnswer((_) {
+        appliedRemoteRows++;
+        return Future<void>.value();
+      });
+      const localUpdatedAt = '2026-08-16T09:00:00.000Z';
+      when(() => operational.getDirtyRows('customer_sectors')).thenAnswer(
+        (_) async => [
+          {
+            'id': 'sector-1',
+            'customerId': 'customer-1',
+            'sectorKey': 'breeder',
+            'isActive': 1,
+            'updatedAt': localUpdatedAt,
+            'syncStatus': 'pending',
+            'dirtyAt': localUpdatedAt,
+          },
+        ],
+      );
+      when(
+        () => supabase.upsertRowsStrict('customer_sectors', any()),
+      ).thenThrow(StateError('simulated sector push failure'));
+      when(
+        () => operational.getRowById('customer_sectors', 'sector-1'),
+      ).thenAnswer(
+        (_) async => {
+          'id': 'sector-1',
+          'customerId': 'customer-1',
+          'sectorKey': 'breeder',
+          'isActive': 1,
+          // Equal timestamps make the old behavior choose the remote row.
+          'updatedAt': localUpdatedAt,
+          'syncStatus': 'failed',
+          'dirtyAt': localUpdatedAt,
+        },
+      );
+      when(
+        () => supabase.pullOperationalRows(
+          upsertOperationalRow: any(named: 'upsertOperationalRow'),
+        ),
+      ).thenAnswer((invocation) async {
+        final callback =
+            invocation.namedArguments[#upsertOperationalRow]
+                as Future<void> Function(String, Map<String, dynamic>);
+        await callback('customer_sectors', {
+          'id': 'sector-1',
+          'customer_id': 'customer-1',
+          'sector_key': 'breeder',
+          'is_active': 0,
+          'updated_at': localUpdatedAt,
+        });
+        return 1;
+      });
+
+      final outcome = await service().run();
+
+      expect(outcome.failedTables, contains('customer_sectors'));
+      verify(
+        () =>
+            operational.markRowsFailed('customer_sectors', ['sector-1'], any()),
+      ).called(1);
+      expect(appliedRemoteRows, 0);
+    },
+  );
+
+  test(
+    'pull-only operational sync still applies remote customer sector',
+    () async {
+      var appliedRemoteRows = 0;
+      when(() => operational.upsertRemoteRow(any(), any())).thenAnswer((_) {
+        appliedRemoteRows++;
+        return Future<void>.value();
+      });
+      when(
+        () => operational.getRowById('customer_sectors', 'sector-1'),
+      ).thenAnswer(
+        (_) async => {
+          'id': 'sector-1',
+          'customerId': 'customer-1',
+          'sectorKey': 'breeder',
+          'isActive': 0,
+          'updatedAt': '2026-08-16T09:00:00.000Z',
+          'syncStatus': 'pending',
+          'dirtyAt': '2026-08-16T09:00:00.000Z',
+        },
+      );
+      when(
+        () => supabase.pullOperationalRows(
+          upsertOperationalRow: any(named: 'upsertOperationalRow'),
+        ),
+      ).thenAnswer((invocation) async {
+        final callback =
+            invocation.namedArguments[#upsertOperationalRow]
+                as Future<void> Function(String, Map<String, dynamic>);
+        await callback('customer_sectors', {
+          'id': 'sector-1',
+          'customer_id': 'customer-1',
+          'sector_key': 'breeder',
+          'is_active': 1,
+          'updated_at': '2026-08-16T09:01:00.000Z',
+        });
+        return 1;
+      });
+
+      await service().run(canPush: false);
+
+      expect(appliedRemoteRows, 1);
+    },
+  );
+
+  test(
+    'dirty pull-only operational rows still accept remote child updates',
+    () async {
+      var appliedRemoteRows = 0;
+      when(() => operational.upsertRemoteRow(any(), any())).thenAnswer((_) {
+        appliedRemoteRows++;
+        return Future<void>.value();
+      });
+      when(
+        () => operational.getRowById('breeder_bird_movements', 'movement-1'),
+      ).thenAnswer(
+        (_) async => {
+          'id': 'movement-1',
+          'updatedAt': '2026-08-16T09:00:00.000Z',
+          'syncStatus': 'pending',
+        },
+      );
+      when(
+        () => supabase.pullOperationalRows(
+          upsertOperationalRow: any(named: 'upsertOperationalRow'),
+        ),
+      ).thenAnswer((invocation) async {
+        final callback =
+            invocation.namedArguments[#upsertOperationalRow]
+                as Future<void> Function(String, Map<String, dynamic>);
+        await callback('breeder_bird_movements', {
+          'id': 'movement-1',
+          'updated_at': '2026-08-16T09:01:00.000Z',
+        });
+        return 1;
+      });
+
+      await service().run();
+
+      expect(appliedRemoteRows, 1);
+    },
+  );
+
+  test(
     'pull callback exposes panel tables without legacy audit callbacks',
     () async {
       await service().run();
@@ -1343,6 +1707,7 @@ void main() {
           upsertCustomer: captureAny(named: 'upsertCustomer'),
           upsertFlock: captureAny(named: 'upsertFlock'),
           upsertHatchery: captureAny(named: 'upsertHatchery'),
+          upsertHatcheryMachine: any(named: 'upsertHatcheryMachine'),
           upsertPhoto: captureAny(named: 'upsertPhoto'),
           upsertBmkBreed: captureAny(named: 'upsertBmkBreed'),
           upsertBmkEggBreakout: captureAny(named: 'upsertBmkEggBreakout'),
@@ -1558,6 +1923,51 @@ void main() {
     },
   );
 
+  test('only server-accepted tombstones proceed to remote deletion', () async {
+    final missingTarget = SyncTombstone(
+      id: 'hatcheries:missing-hatchery',
+      tableName: 'hatcheries',
+      rowId: 'missing-customer',
+      deletedAt: DateTime(2026, 10, 5),
+      createdAt: DateTime(2026, 10, 5),
+    );
+    final qaTarget = SyncTombstone(
+      id: 'hatcheries:qa-hatchery',
+      tableName: 'hatcheries',
+      rowId: 'qa-hatchery',
+      deletedAt: DateTime(2026, 10, 5),
+      createdAt: DateTime(2026, 10, 5),
+    );
+    when(
+      () => tombstones.getPendingDeletes(),
+    ).thenAnswer((_) async => [missingTarget, qaTarget]);
+    when(() => supabase.upsertRowsStrict('sync_tombstones', any())).thenAnswer((
+      invocation,
+    ) async {
+      final rows =
+          invocation.positionalArguments[1] as List<Map<String, dynamic>>;
+      if (rows.length > 1 || rows.single['rowId'] == 'missing-customer') {
+        throw StateError('Tombstone target is missing or has no scope');
+      }
+    });
+
+    final outcome = await service().run();
+
+    expect(outcome.failed, 1);
+    expect(outcome.failedTables, contains('sync_tombstones'));
+    verify(() => tombstones.markFailed(missingTarget.id, any())).called(1);
+    verifyNever(() => tombstones.markSynced(missingTarget.id));
+    verify(() => tombstones.markSynced(qaTarget.id)).called(1);
+    verify(() => supabase.deleteRows('hatcheries', ['qa-hatchery'])).called(1);
+    verifyNever(() => supabase.deleteRows('customers', ['missing-customer']));
+    verifyNever(
+      () => supabase.deleteRows('hatcheries', ['missing-customer']),
+    );
+    verifyNever(
+      () => supabase.deleteRows('hatcheries', ['missing-customer', 'qa-hatchery']),
+    );
+  });
+
   // ---------------------------------------------------------------------
   // Retry bound: a permanently failing table must not re-attempt its doomed
   // upload on every single run.
@@ -1654,6 +2064,10 @@ void main() {
     expect(
       order.indexOf('egg_storage'),
       lessThan(order.indexOf('audit_sessions')),
+    );
+    expect(
+      order.indexOf('hatchery_machines'),
+      lessThan(order.indexOf('hatcheries')),
     );
   });
 

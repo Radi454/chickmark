@@ -10,6 +10,7 @@ import '../../data/repositories/egg_grading_repository.dart';
 import '../../data/repositories/flock_repository.dart';
 import '../../data/repositories/govee_capture_repository.dart';
 import '../../data/repositories/hatchery_repository.dart';
+import '../../data/repositories/hatchery_machine_repository.dart';
 import '../../data/repositories/lab_analysis_repository.dart';
 import '../../data/repositories/panel_sample_repository.dart';
 import '../../data/repositories/panel_sampling_state_repository.dart';
@@ -117,6 +118,7 @@ class StartupSyncService {
   final DashboardActionRepository _dashboardActionRepository;
   final FlockRepository _flockRepository;
   final HatcheryRepository _hatcheryRepository;
+  final HatcheryMachineRepository _hatcheryMachineRepository;
   final LabAnalysisRepository _labAnalysisRepository;
   final ActivityLogRepository _activityLogRepository;
   final PhotoRepository _photoRepository;
@@ -148,6 +150,7 @@ class StartupSyncService {
     DashboardActionRepository? dashboardActionRepository,
     FlockRepository? flockRepository,
     HatcheryRepository? hatcheryRepository,
+    HatcheryMachineRepository? hatcheryMachineRepository,
     LabAnalysisRepository? labAnalysisRepository,
     ActivityLogRepository? activityLogRepository,
     PhotoRepository? photoRepository,
@@ -171,6 +174,8 @@ class StartupSyncService {
            dashboardActionRepository ?? DashboardActionRepository(),
        _flockRepository = flockRepository ?? FlockRepository(),
        _hatcheryRepository = hatcheryRepository ?? HatcheryRepository(),
+       _hatcheryMachineRepository =
+           hatcheryMachineRepository ?? HatcheryMachineRepository(),
        _labAnalysisRepository =
            labAnalysisRepository ?? LabAnalysisRepository(),
        _activityLogRepository =
@@ -326,6 +331,14 @@ class StartupSyncService {
       markFailed: _hatcheryRepository.markRowsFailed,
     );
 
+    progress(0.23, 'Uploading hatchery machines');
+    pushed += await _pushDirtyReferenceRows(
+      'hatchery_machines',
+      getDirtyRows: _hatcheryMachineRepository.getDirtyRows,
+      markSynced: _hatcheryMachineRepository.markRowsSynced,
+      markFailed: _hatcheryMachineRepository.markRowsFailed,
+    );
+
     progress(0.24, 'Uploading benchmark standards');
     pushed += await _pushDirtyReferenceRows(
       'bmk_operational_standards',
@@ -473,20 +486,76 @@ class StartupSyncService {
   }) async {
     final dirty = await getDirtyRows();
     if (dirty.isEmpty) return 0;
-    final ids = dirty
-        .map((row) => row['id']?.toString())
-        .whereType<String>()
+    if (!_retryPolicy.shouldAttempt(table)) {
+      _recordFailedRows(table, dirty.length);
+      return 0;
+    }
+
+    // A malformed dirty row cannot be safely acknowledged. Repository-backed
+    // tables normally guarantee IDs, but keep injected or drifted data visible
+    // in sync status rather than sending it and later marking an empty ID set.
+    final rowsWithIds = <Map<String, dynamic>>[];
+    var failedRows = 0;
+    for (final row in dirty) {
+      final id = row['id']?.toString().trim();
+      if (id == null || id.isEmpty) {
+        failedRows++;
+      } else {
+        rowsWithIds.add(row);
+      }
+    }
+    if (rowsWithIds.isEmpty) {
+      _retryPolicy.recordFailure(table);
+      _recordFailedRows(table, failedRows);
+      return 0;
+    }
+
+    final ids = rowsWithIds
+        .map((row) => row['id'].toString())
         .toList(growable: false);
-    return _pushBatch(
-      table,
-      dirty.length,
-      upload: () => _supabaseService.upsertRowsStrict(
+    try {
+      // Keep the normal path batched. Per-row requests are reserved for a
+      // rejected batch so an orphaned row cannot poison valid sibling rows.
+      await _supabaseService.upsertRowsStrict(
         table,
-        dirty.map(stripSyncMeta).toList(growable: false),
-      ),
-      markSynced: () => markSynced(ids),
-      markFailed: (error) => markFailed(ids, error),
-    );
+        rowsWithIds.map(stripSyncMeta).toList(growable: false),
+      );
+      await markSynced(ids);
+      if (failedRows == 0) {
+        _retryPolicy.recordSuccess(table);
+      } else {
+        _retryPolicy.recordFailure(table);
+        _recordFailedRows(table, failedRows);
+      }
+      return rowsWithIds.length;
+    } catch (_) {
+      var pushed = 0;
+      for (final row in rowsWithIds) {
+        final id = row['id'].toString();
+        try {
+          await _supabaseService.upsertRowsStrict(table, [stripSyncMeta(row)]);
+          await markSynced([id]);
+          pushed++;
+        } catch (error) {
+          failedRows++;
+          try {
+            await markFailed([id], error);
+          } catch (markError) {
+            debugPrint(
+              '[SYNC] Failed to mark $table row $id after upload error: '
+              '$markError',
+            );
+          }
+        }
+      }
+      if (failedRows == 0) {
+        _retryPolicy.recordSuccess(table);
+      } else {
+        _retryPolicy.recordFailure(table);
+        _recordFailedRows(table, failedRows);
+      }
+      return pushed;
+    }
   }
 
   Future<int> _pushDirtyOperationalRows(Iterable<String> tables) async {
@@ -943,20 +1012,33 @@ class StartupSyncService {
     progress(0.70, 'Syncing deletes');
     final pending = await _syncTombstoneRepository.getPendingDeletes();
     if (pending.isEmpty) return;
+    var accepted = pending;
     try {
       await _supabaseService.upsertRowsStrict(
         SyncTombstoneRepository.tableName,
         pending.map((tombstone) => tombstone.toMap()).toList(),
       );
-    } catch (error) {
+    } catch (_) {
+      accepted = [];
+      var rejected = 0;
       for (final tombstone in pending) {
-        await _syncTombstoneRepository.markFailed(tombstone.id, error);
+        try {
+          await _supabaseService.upsertRowsStrict(
+            SyncTombstoneRepository.tableName,
+            [tombstone.toMap()],
+          );
+          accepted.add(tombstone);
+        } catch (error) {
+          await _syncTombstoneRepository.markFailed(tombstone.id, error);
+          rejected++;
+        }
       }
-      _recordFailedRows(SyncTombstoneRepository.tableName, pending.length);
-      return;
+      if (rejected > 0) {
+        _recordFailedRows(SyncTombstoneRepository.tableName, rejected);
+      }
     }
     for (final table in SyncTombstoneRepository.deleteOrder) {
-      final tombstones = pending
+      final tombstones = accepted
           .where((tombstone) => tombstone.tableName == table)
           .toList();
       if (tombstones.isEmpty) continue;
@@ -1018,6 +1100,8 @@ class StartupSyncService {
         getSyncStatus: _hatcheryRepository.getRowSyncStatus,
         upsert: (value) => _hatcheryRepository.upsertHatchery(value),
       ),
+      upsertHatcheryMachine: (row) =>
+          _upsertHatcheryMachine(row, canPush: canPush),
       upsertPhoto: (row) => _upsertRemoteRow(
         'photos',
         row,
@@ -1046,7 +1130,8 @@ class StartupSyncService {
           _syncTombstoneRepository.upsertRemoteTombstone(row),
     );
     final operationalRows = await _supabaseService.pullOperationalRows(
-      upsertOperationalRow: _upsertOperationalWithConflictCheck,
+      upsertOperationalRow: (table, row) =>
+          _upsertOperationalWithConflictCheck(table, row, canPush: canPush),
     );
     await _syncTombstoneRepository.applyRemoteDeletes();
     progress(0.92, 'Preparing workspace');
@@ -1055,16 +1140,33 @@ class StartupSyncService {
 
   Future<void> _upsertOperationalWithConflictCheck(
     String table,
-    Map<String, dynamic> remoteRow,
-  ) async {
+    Map<String, dynamic> remoteRow, {
+    required bool canPush,
+  }) async {
     if (_hasPendingLocalDelete(table, remoteRow)) return;
     final result = await _upsertWithConflictCheck(
       table,
       remoteRow,
       getLocal: (id) => _performanceSyncRepository.getRowById(table, id),
       upsert: (row) => _performanceSyncRepository.upsertRemoteRow(table, row),
+      preserveDirtyLocal:
+          canPush && PerformanceSyncRepository.allPushTables.contains(table),
     );
     _countOtherIncoming(result);
+  }
+
+  Future<void> _upsertHatcheryMachine(
+    Map<String, dynamic> remoteRow, {
+    required bool canPush,
+  }) async {
+    if (_hasPendingLocalDelete('hatchery_machines', remoteRow)) return;
+    await _upsertReferenceRow(
+      'hatchery_machines',
+      remoteRow,
+      canPush: canPush,
+      getSyncStatus: _hatcheryMachineRepository.getRowSyncStatus,
+      upsert: _hatcheryMachineRepository.upsertRemoteRow,
+    );
   }
 
   Future<void> _upsertSessionWithConflictCheck(
@@ -1271,9 +1373,9 @@ class StartupSyncService {
     await upsert(remoteRow);
   }
 
-  /// Reference tables have no updatedAt conflict check (customers/hatcheries
-  /// don't carry updatedAt). Guard instead: while a local edit is pending or
-  /// failed, the local row wins; it will be pushed on this or the next run.
+  /// Reference/catalog rows use sync status instead of an updatedAt conflict
+  /// check. While a local edit is pending or failed, the local row wins; it
+  /// will be pushed on this or the next run.
   ///
   /// That guard only protects an edit this device can actually push. A
   /// device that can never push (canPush: false, e.g. the customer role)
@@ -1305,6 +1407,7 @@ class StartupSyncService {
     Map<String, dynamic> remoteRow, {
     required Future<Map<String, dynamic>?> Function(String id) getLocal,
     required Future<void> Function(Map<String, dynamic>) upsert,
+    bool preserveDirtyLocal = false,
   }) async {
     final id = _rowId(remoteRow);
     if (id == null || id.isEmpty) {
@@ -1314,6 +1417,17 @@ class StartupSyncService {
 
     final localRow = await getLocal(id);
     if (localRow != null) {
+      // Operational rows may have failed their push earlier in this same
+      // run, or may still be dirty because a local edit landed after that
+      // push captured its dirtyAt cutoff. A push-capable device must retain
+      // that local version for retry instead of clearing its dirty state with
+      // a stale pull. Pull-only roles cannot push by design, so remote rows
+      // remain authoritative for them.
+      final syncStatus = localRow['syncStatus']?.toString();
+      if (preserveDirtyLocal &&
+          (syncStatus == 'pending' || syncStatus == 'failed')) {
+        return _UpsertResult.keptLocal;
+      }
       final localTime = _parseUpdatedAt(localRow);
       final remoteTime = _parseUpdatedAt(remoteRow);
       if (localTime != null &&

@@ -187,6 +187,7 @@ void main() {
         upsertCustomer: any(named: 'upsertCustomer'),
         upsertFlock: any(named: 'upsertFlock'),
         upsertHatchery: any(named: 'upsertHatchery'),
+        upsertHatcheryMachine: any(named: 'upsertHatcheryMachine'),
         upsertPhoto: any(named: 'upsertPhoto'),
         upsertBmkBreed: any(named: 'upsertBmkBreed'),
         upsertBmkEggBreakout: any(named: 'upsertBmkEggBreakout'),

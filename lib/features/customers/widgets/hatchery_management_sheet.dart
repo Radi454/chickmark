@@ -4,8 +4,11 @@ import 'package:provider/provider.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../data/models/hatchery_model.dart';
+import '../../../data/repositories/hatchery_machine_repository.dart';
+import '../../auth/providers/auth_provider.dart';
 import '../../../providers/customers_provider.dart';
 import 'add_hatchery_sheet.dart';
+import 'hatchery_machine_editor.dart';
 
 class HatcheryManagementSheet extends StatelessWidget {
   final bool allowAuditSelection;
@@ -31,9 +34,10 @@ class HatcheryManagementSheet extends StatelessWidget {
               builder: (context, provider, child) {
                 final customer = provider.selectedCustomer;
                 final hatcheries = [...provider.hatcheries]
-                  ..sort((a, b) => a.name.toLowerCase().compareTo(
-                        b.name.toLowerCase(),
-                      ));
+                  ..sort(
+                    (a, b) =>
+                        a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+                  );
 
                 return ListView(
                   controller: scrollController,
@@ -71,10 +75,8 @@ class HatcheryManagementSheet extends StatelessWidget {
                         FilledButton.icon(
                           onPressed: customer == null
                               ? null
-                              : () => _showAddHatcherySheet(
-                                    context,
-                                    customer.id,
-                                  ),
+                              : () =>
+                                    _showAddHatcherySheet(context, customer.id),
                           icon: const Icon(Icons.add, size: 18),
                           label: const Text('Add'),
                           style: FilledButton.styleFrom(
@@ -101,14 +103,12 @@ class HatcheryManagementSheet extends StatelessWidget {
                             hatchery: hatchery,
                             allowAuditSelection: allowAuditSelection,
                             onUse: () => Navigator.pop(context, hatchery),
-                            onEdit: () => _showEditHatcherySheet(
-                              context,
-                              hatchery,
-                            ),
-                            onDelete: () => _confirmDeleteHatchery(
-                              context,
-                              hatchery,
-                            ),
+                            onEdit: () =>
+                                _showEditHatcherySheet(context, hatchery),
+                            onDelete: () =>
+                                _confirmDeleteHatchery(context, hatchery),
+                            onManageMachines: () =>
+                                _showMachineManagement(context, hatchery.id),
                           ),
                         ),
                       ),
@@ -207,6 +207,22 @@ class HatcheryManagementSheet extends StatelessWidget {
     if (confirmed != true || !context.mounted) return;
     await context.read<CustomersProvider>().deleteHatchery(hatchery.id);
   }
+
+  Future<void> _showMachineManagement(
+    BuildContext context,
+    String hatcheryId,
+  ) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      builder: (_) => HatcheryMachineManagementSheet(
+        hatcheryId: hatcheryId,
+        repository: HatcheryMachineRepository(),
+        readOnly: !(context.read<AuthProvider>().user?.canEditAudits ?? false),
+      ),
+    );
+  }
 }
 
 class _ManagedHatcheryCard extends StatelessWidget {
@@ -215,6 +231,7 @@ class _ManagedHatcheryCard extends StatelessWidget {
   final VoidCallback? onUse;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
+  final VoidCallback onManageMachines;
 
   const _ManagedHatcheryCard({
     required this.hatchery,
@@ -222,6 +239,7 @@ class _ManagedHatcheryCard extends StatelessWidget {
     required this.onUse,
     required this.onEdit,
     required this.onDelete,
+    required this.onManageMachines,
   });
 
   @override
@@ -302,6 +320,11 @@ class _ManagedHatcheryCard extends StatelessWidget {
                       foregroundColor: Colors.white,
                     ),
                   ),
+                OutlinedButton.icon(
+                  onPressed: onManageMachines,
+                  icon: const Icon(Icons.precision_manufacturing_outlined),
+                  label: Text(context.tr('Machines')),
+                ),
                 IconButton.outlined(
                   tooltip: context.tr('Edit hatchery'),
                   onPressed: onEdit,

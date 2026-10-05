@@ -253,6 +253,7 @@ class CustomersProvider extends ChangeNotifier {
       _hatcheries = await _hatcheryRepository.getHatcheriesByCustomer(
         customer.id,
       );
+      _replaceSelectedCustomerIndexes();
       await _loadHierarchy(customer.id);
 
       // Auto-select first audit-available flock if available.
@@ -391,6 +392,7 @@ class CustomersProvider extends ChangeNotifier {
         _flocks = await _flockRepository.getFlocksByCustomer(
           _selectedCustomer!.id,
         );
+        _replaceSelectedCustomerIndexes();
       }
 
       // Update flock counts
@@ -422,6 +424,7 @@ class CustomersProvider extends ChangeNotifier {
         _hatcheries = await _hatcheryRepository.getHatcheriesByCustomer(
           hatchery.customerId,
         );
+        _replaceSelectedCustomerIndexes();
       }
       await loadCustomers();
       notifyListeners();
@@ -440,6 +443,7 @@ class CustomersProvider extends ChangeNotifier {
         _hatcheries = await _hatcheryRepository.getHatcheriesByCustomer(
           hatchery.customerId,
         );
+        _replaceSelectedCustomerIndexes();
       }
       await loadCustomers();
       notifyListeners();
@@ -458,6 +462,7 @@ class CustomersProvider extends ChangeNotifier {
         _hatcheries = await _hatcheryRepository.getHatcheriesByCustomer(
           _selectedCustomer!.id,
         );
+        _replaceSelectedCustomerIndexes();
       }
       await loadCustomers();
       notifyListeners();
@@ -481,6 +486,7 @@ class CustomersProvider extends ChangeNotifier {
         _flocks = await _flockRepository.getFlocksByCustomer(
           _selectedCustomer!.id,
         );
+        _replaceSelectedCustomerIndexes();
       }
       final updatedFlock = _flocks.firstWhere(
         (f) => f.id == flock.id,
@@ -512,6 +518,7 @@ class CustomersProvider extends ChangeNotifier {
         _flocks = await _flockRepository.getFlocksByCustomer(
           _selectedCustomer!.id,
         );
+        _replaceSelectedCustomerIndexes();
       }
       if (_selectedFlock?.id == flockId) {
         _selectedFlock = _flocks.isNotEmpty ? _flocks.first : null;
@@ -609,5 +616,20 @@ class CustomersProvider extends ChangeNotifier {
     if (user != null && !user.canEditAudits) {
       throw StateError('This account has read-only access.');
     }
+  }
+
+  void _replaceSelectedCustomerIndexes() {
+    final customerId = _selectedCustomer?.id;
+    if (customerId == null) return;
+
+    _flocksById.removeWhere((_, flock) => flock.customerId == customerId);
+    _flocksById.addEntries(_flocks.map((flock) => MapEntry(flock.id, flock)));
+
+    _hatcheriesById.removeWhere(
+      (_, hatchery) => hatchery.customerId == customerId,
+    );
+    _hatcheriesById.addEntries(
+      _hatcheries.map((hatchery) => MapEntry(hatchery.id, hatchery)),
+    );
   }
 }

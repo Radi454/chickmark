@@ -347,6 +347,34 @@ Future<void> _createHatcheryTables(Database db) async {
   );
 }
 
+Future<void> _createHatcheryMachineTable(DatabaseExecutor db) async {
+  await db.execute('''CREATE TABLE IF NOT EXISTS hatchery_machines (
+    id TEXT PRIMARY KEY,
+    hatcheryId TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('setter', 'hatcher')),
+    code TEXT NOT NULL,
+    name TEXT NOT NULL,
+    batchSize INTEGER NOT NULL CHECK (batchSize > 0),
+    trolleyCapacity INTEGER NOT NULL CHECK (trolleyCapacity > 0),
+    traySize INTEGER NOT NULL CHECK (traySize > 0),
+    trolleyCount INTEGER NOT NULL CHECK (trolleyCount > 0),
+    traysPerTrolley INTEGER NOT NULL CHECK (traysPerTrolley > 0),
+    createdAt TEXT,
+    updatedAt TEXT,
+    createdBy TEXT,
+    syncStatus TEXT NOT NULL DEFAULT 'pending',
+    dirtyAt TEXT,
+    lastSyncedAt TEXT,
+    syncError TEXT,
+    FOREIGN KEY (hatcheryId) REFERENCES hatcheries(id) ON DELETE CASCADE
+  )''');
+  await db.execute('''CREATE UNIQUE INDEX IF NOT EXISTS
+    idx_hatchery_machines_hatchery_kind_code
+    ON hatchery_machines (hatcheryId, kind, UPPER(TRIM(code)))''');
+  await db.execute('''CREATE INDEX IF NOT EXISTS idx_hatchery_machines_sync
+    ON hatchery_machines (syncStatus, dirtyAt)''');
+}
+
 Future<void> _createAuditSessionTables(Database db) async {
   await db.execute('''CREATE TABLE IF NOT EXISTS audit_sessions (
     id TEXT PRIMARY KEY,

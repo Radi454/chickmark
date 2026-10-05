@@ -52,6 +52,42 @@ void main() {
     });
   });
 
+  test('hatchery machine catalog fields map to cloud snake_case', () {
+    final payload = toSupabaseUpsertPayload('hatchery_machines', {
+      'id': 'machine-1',
+      'hatcheryId': 'hatchery-1',
+      'kind': 'setter',
+      'code': 'S-01',
+      'name': 'Setter 1',
+      'batchSize': 120000,
+      'trolleyCapacity': 120,
+      'traySize': 150,
+      'trolleyCount': 80,
+      'traysPerTrolley': 100,
+      'createdAt': '2026-10-05T00:00:00Z',
+      'updatedAt': '2026-10-05T00:00:00Z',
+      'createdBy': 'user-1',
+      'syncStatus': 'pending',
+      'dirtyAt': 'device-only',
+    });
+
+    expect(payload, {
+      'id': 'machine-1',
+      'hatchery_id': 'hatchery-1',
+      'kind': 'setter',
+      'code': 'S-01',
+      'name': 'Setter 1',
+      'batch_size': 120000,
+      'trolley_capacity': 120,
+      'tray_size': 150,
+      'trolley_count': 80,
+      'trays_per_trolley': 100,
+      'created_at': '2026-10-05T00:00:00Z',
+      'updated_at': '2026-10-05T00:00:00Z',
+      'created_by': 'user-1',
+    });
+  });
+
   test(
     'upsert payload strips local sync metadata before snake case conversion',
     () {

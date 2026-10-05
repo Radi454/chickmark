@@ -44,7 +44,7 @@ void main() {
       await useIsolatedAppDatabase();
       final db = await DatabaseHelper().db;
       final version = (await db.rawQuery('PRAGMA user_version')).single;
-      expect(version['user_version'], 82);
+      expect(version['user_version'], 83);
 
       final tables = (await db.rawQuery(
         "SELECT name FROM sqlite_master WHERE type='table'",
@@ -55,6 +55,7 @@ void main() {
           'panel_sampling_states',
           'panel_sampling_nodes',
           'panel_sample_serial_reservations',
+          'hatchery_machines',
         ]),
       );
 

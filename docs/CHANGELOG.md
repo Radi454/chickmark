@@ -1,5 +1,32 @@
 # ChickMark Change Log
 
+- 2026-10-05: Isolated rejected tombstone uploads so accepted deletion events still proceed through the existing child-before-parent delete order; rejected or missing-scope events stay retryable.
+
+- 2026-10-05: Extended tenant-scoped tombstone resolution to panel sampling
+  state, sampling nodes, sample serial reservations, and hatchery machines while
+  preserving retry identity and audience. Reference-row sync keeps the strict
+  batched upsert fast path, then retries ID-bearing rows individually when a
+  mixed batch fails so valid siblings can sync and failed rows remain
+  retryable. Numbered sampling dropdowns preserve saved zero and arbitrary
+  legacy codes as Legacy options when editing existing branches.
+
+- 2026-10-05: Added hatchery-registered Setter/Hatcher machines with fixed
+  physical IDs, capacity registration and automatically calculated stored
+  trolley/tray counts. Sampling now selects registered machines and numbered
+  trolleys/trays from dropdowns, with inline registration and editing plus a
+  hatchery Machines manager. Capacity edits preserve existing samples and
+  measurements; legacy identities remain editable, and sampling identity edits
+  preserve the active sample. Added SQLite v83, customer-scoped Supabase schema
+  and catalog sync, read-only manager controls, and regression coverage.
+
+- 2026-10-05: Refreshed selected-customer flock and hatchery ID indexes after
+  selection and CRUD reloads so newly registered references display their names
+  and sampling codes in audit forms. Operational sync now preserves pending or
+  failed local rows on push-capable devices when a subsequent pull would clear
+  an unsuccessful upload; pull-only roles and tables continue accepting remote
+  updates. Added real SQLite adapter coverage for paired sample save/reopen,
+  identity edits, scoped photos, and subtree deletion.
+
 - 2026-10-05: Pinned sqlite3 to 3.3.3 to apply the upstream web IndexedDB
   loader fix for obsolete blocks beyond a file's current length. Existing
   browser databases open without a storage reset; database schema and saved

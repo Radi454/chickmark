@@ -1,8 +1,36 @@
 # Sampling UI and end-to-end audit — 2026-10-05
 
-Task: sampling-ui-e2e-20261005. Current status: reviewed fixes prepared for publication; live destructive/reopen checks require user input. Human acceptance remains pending.
+Task: sampling-ui-e2e-20261005. Current status: authenticated local switching,
+identity-edit, approved tray deletion, and save/reopen checks passed on
+ab19495. Additional registered-machine dropdown implementation is in progress;
+Supabase access is restored and the catalog and tombstone-scope migrations are applied; live catalog and cloud checks remain pending. Human acceptance remains pending.
 
 Scope: current published ChickMark sampling controls and live form flows; offline SQLite save/reopen and sync regressions. Browser evidence was captured in this run.
+
+## Authenticated continuation
+
+On the published ab19495 build, a new named QA fixture was registered under
+Dashboard Test Customer. Registered House selection, paired Setter/Hatcher
+creation, duplicate rejection, and independent Egg Storage/Quality values and
+notes passed. Setter Tray 1 retained 99.5°F while a second tray retained
+100.2°F after switching. Renaming the second tray preserved SA2 and its reading,
+although the UI selected Tray 1 after the edit. The approved permanent deletion
+of that second QA tray reported one measurement and removed only that tray;
+Tray 1 and its 99.5°F reading survived.
+New Hatcher and nested Trolley branches each created and selected a usable
+default Tray 1. The QA visit saved as incomplete, reopened from Audits through
+Resume visit, and restored Tray 1's 99.5°F reading. Its visit card still reports
+Sync: Failed while the list header reports Synced just now.
+
+A focused combined regression run passed 52 tests for customer reference
+lookup refresh, startup dirty-row protection, and actual SQLite adapter
+save/reopen, identity edits, photo ownership, and subtree deletion. These tests
+do not establish production cloud convergence. The Supabase management connector is authenticated again. The registered catalog migration and sampling/catalog tombstone-scope migration were applied, and the transactional tombstone test passed with rollback. The earlier QA fixture's absence
+after sign-in remains unexplained; no browser storage was erased.
+
+The user subsequently requested hatchery-registered machine dropdowns and
+numbered trolley/tray dropdowns based on counts calculated during machine
+registration. That addition is in progress and is not yet published.
 
 ## Flow results
 
@@ -12,7 +40,7 @@ Scope: current published ChickMark sampling controls and live form flows; offlin
 4. Chick Quality pair — passed creation/selection and independent Chick Weights state. Duplicate pair is rejected but reports a generic save error. See 04-duplicate-error.jpg.
 5. Measured Pooled reset — passed warning and cancellation. 99.5°F retained after cancellation. See 05-reset-warning.jpg.
 6. Setter Tray switching — failed rendered field ownership. Active sample changes but controllers still display the outgoing reading. Provider/storage tests alone did not catch this. See 08-tray-switch-stale-field.jpg. Correction uses active sample identity for hydration.
-7. Branch deletion — passed preview and cancellation; permanent deletion awaits specific approval. Dialog reports one affected measurement and no photos/notes. See 09-delete-confirmation.jpg.
+7. Branch deletion — passed preview and cancellation; the approved QA second-tray deletion subsequently passed (see continuation above). Dialog reports one affected measurement and no photos/notes. See 09-delete-confirmation.jpg.
 8. Hatcher ancestor creation — failed selection/continuation. A new branch without a terminal leaf cannot become active; clicking it does nothing. See 10-hatcher-branch-no-selection.jpg. Correction creates/selects an identified default Tray below a new ancestor.
 9. Fresh/Candled breakout switching — passed independent count restoration (Fresh 2/30; Candled 3/150). See 11-breakout-independent.jpg.
 10. Save — passed local saved indicator. The authenticated session subsequently became available and the saved QA visit reopened. The visit reports Sync: Failed, while the global header says Synced just now; its flock lookup falls back to the UUID. After deployment 426858c, reload reproduced the same IndexedDB byte-buffer startup failure as the fixed local origin. Post-fix form checks and cloud convergence remain pending.
@@ -30,7 +58,7 @@ Scope: current published ChickMark sampling controls and live form flows; offlin
 
 ## Evidence limits
 
-These screenshots establish visible behavior, not full accessibility compliance. Phone-width rendering, readable labels, duplicate feedback, and sample ownership are covered by targeted widget checks. Real multi-device cloud convergence, photo uploads/deletions, offline network switching, and permanent branch deletion have not been exercised through the live browser in this run.
+These screenshots establish visible behavior, not full accessibility compliance. Phone-width rendering, readable labels, duplicate feedback, and sample ownership are covered by targeted widget checks. Real multi-device cloud convergence, photo uploads/deletions, offline network switching, and whole-visit cleanup remain pending through the live browser; approved single-tray deletion passed.
 
 The fixed local dev origin also reproduces its prior IndexedDB byte-buffer startup error before database initialization. No browser storage was erased or alternate origin used.
 
@@ -39,6 +67,14 @@ The fixed local dev origin also reproduces its prior IndexedDB byte-buffer start
 The bounded UI/controller fixes and focused regressions have been reviewed. Publish the verified release under standing commit/push/Pages authorization. Resume authenticated live checks after sign-in and perform destructive checks only after QA-record deletion approval. QA fixture data remains until approved cleanup.
 
 ## Captured live evidence
+
+### Authenticated continuation: save/reopen
+
+![Reopened Setter measurement](25-reopened-setter-measurement.png)
+
+![Surviving tray after approved deletion](22-surviving-tray-after-delete.png)
+
+![New nested Hatcher/Trolley terminal](24-trolley-default-leaf.png)
 
 ### 1. Original sampling controls
 
@@ -79,7 +115,7 @@ The real SamplingScopeControls and app theme were rendered in a temporary in-mem
 
 ![Updated sampling controls in isolated UI harness](13-controls-after.png)
 
-General health: visible usability and sample-ownership defects were found and corrected. Final acceptance remains pending authenticated reopen, permanent deletion approval, photo/cloud convergence checks, and human review.
+General health: visible usability and sample-ownership defects were found and corrected. Authenticated reopen and approved single-tray deletion passed. Final acceptance remains pending live catalog verification, photo/cloud convergence checks, QA cleanup, and human review.
 
 Files changed: sampling controls/provider; Setter, Hatcher, Egg and Chick screens; Arabic localization; six focused widget/provider test files; living spec, changelog and this evidence folder. No schema or remote-service change.
 
@@ -104,3 +140,11 @@ Pages run 37356455285 succeeded for startup-fix commit ab19495. The live browser
 Read-only cloud queries found neither the new QA hatchery nor flock, confirming cloud convergence has not passed. The QA records remain locally and permanent deletion/cleanup still awaits approval. This task is not accepted as complete.
 
 ![Live app recovered to Sign In](15-live-recovered-signin.png)
+
+## Registered catalog validation continuation
+
+A focused 127-test run passed, covering fresh and upgraded SQLite schema v83, catalog isolation and dirty tracking, fixed machine IDs, inline registration/capacity editing, four trolley choices, 32 tray choices, and legacy identities (`0`, `QA-T2`, and out-of-capacity `T40`). Real repository/adapter save and subtree-delete regressions and startup sync/security tests also passed. A failed reference batch retries rows individually so valid hatcheries can upload while invalid records remain failed. These automated results do not establish live multi-device convergence.
+
+A subsequent 45-test startup-sync run passed after tombstone upload isolation: a rejected event remains failed and is never used for target deletion, while the accepted QA event proceeds and is acknowledged. Missing remote targets still require safe reconciliation; no security policies were weakened and rejected events were not silently acknowledged.
+
+Release web build passed for the catalog update. Final startup-sync regression run passed all 45 tests, including the final negative acknowledgment assertions. Analyzer reports only the two existing environment-loader/photo-service warnings.

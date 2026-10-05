@@ -3,13 +3,16 @@ import 'package:provider/provider.dart';
 
 import '../../../data/models/panel_sample_schema.dart';
 import '../../../data/models/panel_sampling_state.dart';
+import '../../../data/models/hatchery_machine_model.dart';
 import '../../../data/models/poultry_hierarchy_models.dart';
 import '../../../data/models/sampling_code.dart';
 import '../../../data/models/sampling_scope.dart';
 import '../../../data/repositories/poultry_hierarchy_repository.dart';
+import '../../../data/repositories/hatchery_machine_repository.dart';
 import '../../../l10n/app_localizations.dart' show AppLocalizationsX;
 import '../../../providers/customers_provider.dart';
 import '../providers/audit_provider.dart';
+import '../../customers/widgets/hatchery_machine_editor.dart';
 
 /// Shared scope tabs for a single panel. State is loaded lazily so screens
 /// which do not render sampling controls never open the sampling database.
@@ -18,10 +21,12 @@ class SamplingScopeControls extends StatefulWidget {
     super.key,
     required this.panelKey,
     this.houseRepository,
+    this.machineRepository,
   });
 
   final String panelKey;
   final PoultryHierarchyRepository? houseRepository;
+  final HatcheryMachineRepository? machineRepository;
 
   @override
   State<SamplingScopeControls> createState() => _SamplingScopeControlsState();
@@ -32,6 +37,8 @@ class _SamplingScopeControlsState extends State<SamplingScopeControls> {
 
   PoultryHierarchyRepository get _houseRepository =>
       widget.houseRepository ?? PoultryHierarchyRepository();
+  HatcheryMachineRepository get _machineRepository =>
+      widget.machineRepository ?? HatcheryMachineRepository();
 
   @override
   void didChangeDependencies() {
@@ -340,7 +347,13 @@ class _SamplingScopeControlsState extends State<SamplingScopeControls> {
     String? parentId,
     PanelSamplingConfig config,
   ) async {
-    final identity = await _identityDialog(context, level, config);
+    final identity = await _identityDialog(
+      context,
+      level,
+      config,
+      state: state,
+      parentId: parentId,
+    );
     if (identity == null || !context.mounted) return;
     try {
       final created = await provider.addPanelScopeIdentity(
@@ -433,12 +446,27 @@ class _SamplingScopeControlsState extends State<SamplingScopeControls> {
     SamplingScopeLevel level,
     PanelSamplingConfig config, {
     Map<String, String>? initial,
+    PanelSamplingState? state,
+    String? parentId,
   }) async {
     if (level == SamplingScopeLevel.house) {
       return _houseIdentityDialog(context, initial: initial);
     }
     final pair = config.pairedLevels?.contains(level) ?? false;
     final levels = pair ? config.pairedLevels! : [level];
+    if (levels.any(_isMachineLevel)) {
+      return _machineIdentityDialog(context, levels, initial: initial);
+    }
+    if (level == SamplingScopeLevel.trolley ||
+        level == SamplingScopeLevel.tray) {
+      return _numberIdentityDialog(
+        context,
+        level,
+        state: state,
+        parentId: parentId,
+        initial: initial,
+      );
+    }
     final values = <SamplingScopeLevel, String>{
       for (final item in levels)
         item:
@@ -500,6 +528,369 @@ class _SamplingScopeControlsState extends State<SamplingScopeControls> {
       ),
     );
     return result;
+  }
+
+  bool _isMachineLevel(SamplingScopeLevel level) =>
+      level == SamplingScopeLevel.setter || level == SamplingScopeLevel.hatcher;
+
+  Future<Map<String, String>?> _machineIdentityDialog(
+    BuildContext context,
+    List<SamplingScopeLevel> levels, {
+    Map<String, String>? initial,
+  }) async {
+    final hatcheryId = context.read<AuditProvider>().context?.hatcheryId;
+    List<HatcheryMachineModel> loaded = [];
+    if (hatcheryId != null && hatcheryId.isNotEmpty) {
+      try {
+        loaded = await _machineRepository.getByHatchery(hatcheryId);
+      } catch (_) {
+        if (context.mounted) {
+          _showSamplingError(
+            context,
+            context.tr('Registered machines could not be loaded.'),
+          );
+        }
+        return null;
+      }
+    }
+    if (!context.mounted) return null;
+    final machines = [...loaded];
+    final selected = <SamplingScopeLevel, String?>{};
+    final legacyCodes = <SamplingScopeLevel, String?>{};
+    for (final level in levels) {
+      final kind = level.name;
+      final id = initial?['${kind}MachineId'];
+      final code =
+          initial?[kind] ??
+          (levels.length == 1 ? (initial?['code'] ?? initial?['name']) : null);
+      final match = machines
+          .where(
+            (machine) =>
+                machine.kind == kind &&
+                ((id != null && machine.id == id) ||
+                    (id == null &&
+                        code != null &&
+                        machine.code == code.toUpperCase())),
+          )
+          .firstOrNull;
+      if (match != null) {
+        selected[level] = match.id;
+      } else if (code != null && code.isNotEmpty) {
+        final legacy = _legacyMachineValue(code);
+        selected[level] = legacy;
+        legacyCodes[level] = code;
+      }
+    }
+
+    return showDialog<Map<String, String>>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) {
+          final ready = levels.every((level) => selected[level] != null);
+          return AlertDialog(
+            title: Text(
+              context
+                  .tr('Add {scope}')
+                  .replaceFirst(
+                    '{scope}',
+                    levels.length == 1
+                        ? _levelLabel(context, levels.single)
+                        : context.tr('Setter / Hatcher'),
+                  ),
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (final level in levels) ...[
+                  DropdownButtonFormField<String>(
+                    key: ValueKey('machine-${level.name}'),
+                    initialValue: selected[level],
+                    decoration: InputDecoration(
+                      labelText: _levelLabel(context, level),
+                    ),
+                    items: [
+                      for (final machine in machines.where(
+                        (machine) => machine.kind == level.name,
+                      ))
+                        DropdownMenuItem(
+                          value: machine.id,
+                          child: Text('${machine.code} · ${machine.name}'),
+                        ),
+                      if (legacyCodes[level] != null)
+                        DropdownMenuItem(
+                          value: _legacyMachineValue(legacyCodes[level]!),
+                          child: Text(
+                            '${context.tr('Legacy')} · ${legacyCodes[level]}',
+                          ),
+                        ),
+                    ],
+                    onChanged: (value) =>
+                        setDialogState(() => selected[level] = value),
+                  ),
+                  Wrap(
+                    spacing: 4,
+                    children: [
+                      TextButton.icon(
+                        onPressed: hatcheryId == null || hatcheryId.isEmpty
+                            ? null
+                            : () async {
+                                final machine =
+                                    await showDialog<HatcheryMachineModel>(
+                                      context: dialogContext,
+                                      builder: (_) =>
+                                          HatcheryMachineEditorDialog(
+                                            hatcheryId: hatcheryId,
+                                            kind: level.name,
+                                            repository: _machineRepository,
+                                          ),
+                                    );
+                                if (machine != null) {
+                                  machines.removeWhere(
+                                    (item) => item.id == machine.id,
+                                  );
+                                  machines.add(machine);
+                                  setDialogState(
+                                    () => selected[level] = machine.id,
+                                  );
+                                }
+                              },
+                        icon: const Icon(Icons.add, size: 18),
+                        label: Text(context.tr('Register machine')),
+                      ),
+                      if (machines.any(
+                        (machine) =>
+                            machine.kind == level.name &&
+                            machine.id == selected[level],
+                      ))
+                        TextButton.icon(
+                          onPressed: () async {
+                            final existing = machines.firstWhere(
+                              (machine) =>
+                                  machine.kind == level.name &&
+                                  machine.id == selected[level],
+                            );
+                            final machine =
+                                await showDialog<HatcheryMachineModel>(
+                                  context: dialogContext,
+                                  builder: (_) => HatcheryMachineEditorDialog(
+                                    hatcheryId: hatcheryId!,
+                                    kind: level.name,
+                                    repository: _machineRepository,
+                                    machine: existing,
+                                  ),
+                                );
+                            if (machine != null) {
+                              machines.removeWhere(
+                                (item) => item.id == machine.id,
+                              );
+                              machines.add(machine);
+                              setDialogState(() {});
+                            }
+                          },
+                          icon: const Icon(Icons.edit_outlined, size: 18),
+                          label: Text(context.tr('Edit capacities')),
+                        ),
+                    ],
+                  ),
+                ],
+                if (levels.any(
+                  (level) =>
+                      !machines.any((machine) => machine.kind == level.name),
+                ))
+                  Text(
+                    context.tr(
+                      'Register or select a machine for this hatchery before adding numbered trolley and tray options.',
+                    ),
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: Text(context.tr('Cancel')),
+              ),
+              FilledButton(
+                onPressed: ready
+                    ? () {
+                        final result = <String, String>{};
+                        for (final level in levels) {
+                          final value = selected[level]!;
+                          if (value.startsWith('legacy:')) {
+                            final raw = value.substring('legacy:'.length);
+                            result[level.name] = raw;
+                          } else {
+                            final machine = machines.firstWhere(
+                              (item) => item.id == value,
+                            );
+                            result[level.name] = machine.code;
+                            result['${level.name}MachineId'] = machine.id;
+                          }
+                        }
+                        if (levels.length == 1) {
+                          result['code'] = result[levels.single.name]!;
+                        }
+                        Navigator.pop(dialogContext, result);
+                      }
+                    : null,
+                child: Text(context.tr('Save')),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  String _legacyMachineValue(String code) => 'legacy:$code';
+
+  Future<Map<String, String>?> _numberIdentityDialog(
+    BuildContext context,
+    SamplingScopeLevel level, {
+    PanelSamplingState? state,
+    String? parentId,
+    Map<String, String>? initial,
+  }) async {
+    final machineId = _machineIdForNumberedScope(state, parentId);
+    HatcheryMachineModel? machine;
+    if (machineId != null) {
+      try {
+        machine = await _machineRepository.getById(machineId);
+      } catch (_) {
+        machine = null;
+      }
+    }
+    if (!context.mounted) return null;
+    final label = _levelLabel(context, level);
+    final maximum = machine == null
+        ? 0
+        : level == SamplingScopeLevel.trolley
+        ? machine.trolleyCount
+        : machine.traysPerTrolley;
+    final original = initial?['code'] ?? initial?['name'];
+    final originalNumber = _numberFromIdentity(original, level);
+    final isInRange =
+        originalNumber != null &&
+        originalNumber > 0 &&
+        originalNumber <= maximum;
+    var selected = isInRange
+        ? originalNumber.toString()
+        : original == null
+        ? null
+        : 'legacy:$original';
+    return showDialog<Map<String, String>>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: Text(context.tr('Add {scope}').replaceFirst('{scope}', label)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (machine == null)
+                Text(
+                  context.tr(
+                    'Select or register a setter or hatcher before adding numbered trolley and tray options.',
+                  ),
+                ),
+              DropdownButtonFormField<String>(
+                initialValue: selected,
+                decoration: InputDecoration(labelText: label),
+                items: [
+                  for (var number = 1; number <= maximum; number++)
+                    DropdownMenuItem(
+                      value: '$number',
+                      child: Text('$label $number'),
+                    ),
+                  if (selected?.startsWith('legacy:') == true)
+                    DropdownMenuItem(
+                      value: selected,
+                      child: Text(
+                        '${context.tr('Legacy')} · ${selected!.substring(7)}',
+                      ),
+                    ),
+                ],
+                onChanged: maximum == 0 && selected == null
+                    ? null
+                    : (value) => setDialogState(() => selected = value),
+              ),
+              if (originalNumber != null &&
+                  maximum > 0 &&
+                  originalNumber > maximum)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(
+                    context.tr(
+                      'This saved value is above the registered capacity. It remains available for this existing sampling branch.',
+                    ),
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: Text(context.tr('Cancel')),
+            ),
+            FilledButton(
+              onPressed: selected == null
+                  ? null
+                  : () {
+                      final value = selected!;
+                      if (value.startsWith('legacy:')) {
+                        Navigator.pop(dialogContext, {
+                          'code': value.substring(7),
+                        });
+                        return;
+                      }
+                      final number = int.parse(value);
+                      final prefix = level == SamplingScopeLevel.trolley
+                          ? 'TR'
+                          : 'T';
+                      Navigator.pop(dialogContext, {
+                        'code': '$prefix$number',
+                        'name': '$label $number',
+                      });
+                    },
+              child: Text(context.tr('Save')),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  int? _numberFromIdentity(String? raw, SamplingScopeLevel level) {
+    if (raw == null) return null;
+    final prefix = level == SamplingScopeLevel.tray
+        ? r'(?:T|Tray\s+)'
+        : r'(?:TR|Trolley\s+)';
+    final match = RegExp(
+      '^(?:$prefix)?([0-9]+)\$',
+      caseSensitive: false,
+    ).firstMatch(raw.trim());
+    final number = match == null ? null : int.tryParse(match.group(1)!);
+    return number != null && number > 0 ? number : null;
+  }
+
+  String? _machineIdForNumberedScope(
+    PanelSamplingState? state,
+    String? parentId,
+  ) {
+    if (state == null) return null;
+    var current = parentId;
+    while (current != null) {
+      final node = state.nodes.where((item) => item.id == current).firstOrNull;
+      if (node == null) return null;
+      final hatcherId = node.identity['hatcherMachineId'];
+      final setterId = node.identity['setterMachineId'];
+      if (hatcherId != null && hatcherId.isNotEmpty) return hatcherId;
+      if (setterId != null && setterId.isNotEmpty) return setterId;
+      current = node.parentId;
+    }
+    return null;
   }
 
   Future<Map<String, String>?> _houseIdentityDialog(
@@ -671,11 +1062,17 @@ class _SamplingScopeControlsState extends State<SamplingScopeControls> {
     SamplingNode node,
     PanelSamplingConfig config,
   ) async {
+    final state = provider.samplingStateFor(widget.panelKey);
+    final activeSampleId =
+        provider.activeSampleIdFor(widget.panelKey) ??
+        state?.resolvedActiveSampleId;
     final identity = await _identityDialog(
       context,
       node.level,
       config,
       initial: node.identity,
+      state: state,
+      parentId: node.parentId,
     );
     if (identity != null && context.mounted) {
       try {
@@ -684,6 +1081,14 @@ class _SamplingScopeControlsState extends State<SamplingScopeControls> {
           node.id,
           identity,
         );
+        final refreshed = provider.samplingStateFor(widget.panelKey);
+        if (activeSampleId != null &&
+            refreshed?.samples.any(
+                  (sample) => sample.sampleId == activeSampleId,
+                ) ==
+                true) {
+          await provider.selectPanelSample(widget.panelKey, activeSampleId);
+        }
       } on ArgumentError catch (error) {
         if (context.mounted) {
           _showSamplingError(context, error.message?.toString() ?? '');

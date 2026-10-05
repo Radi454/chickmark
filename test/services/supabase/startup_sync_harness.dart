@@ -88,6 +88,7 @@ class FakeSupabaseService extends Fake implements SupabaseService {
     required Future<void> Function(Map<String, dynamic>) upsertCustomer,
     required Future<void> Function(Map<String, dynamic>) upsertFlock,
     Future<void> Function(Map<String, dynamic>)? upsertHatchery,
+    Future<void> Function(Map<String, dynamic>)? upsertHatcheryMachine,
     Future<void> Function(Map<String, dynamic>)? upsertAuditSession,
     Future<void> Function(Map<String, dynamic>)? upsertPhoto,
     Future<void> Function(Map<String, dynamic>)? upsertBmkBreed,
@@ -105,6 +106,14 @@ class FakeSupabaseService extends Fake implements SupabaseService {
     upsertPanelSamplingRow,
     Future<void> Function(Map<String, dynamic>)? upsertSyncTombstone,
   }) async {
+    var hatcheryMachines = 0;
+    if (upsertHatcheryMachine != null) {
+      for (final row in _remoteRows['hatchery_machines'] ?? const []) {
+        pulledTables.add('hatchery_machines');
+        await upsertHatcheryMachine(row);
+        hatcheryMachines++;
+      }
+    }
     if (upsertBmkOperationalStandard != null) {
       for (final row in _remoteRows['bmk_operational_standards'] ?? const []) {
         await upsertBmkOperationalStandard(row);
@@ -151,6 +160,7 @@ class FakeSupabaseService extends Fake implements SupabaseService {
       }
     }
     return SupabasePullSummary(
+      hatcheryMachines: hatcheryMachines,
       panelRows: panelRows,
       chickObservations: chickObservations,
       eggGradingCounts: eggGradingCounts,

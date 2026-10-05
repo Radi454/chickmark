@@ -1560,6 +1560,12 @@ class PanelSamplingStateRepository {
       'hatcher',
       'trolley',
       'tray',
+      if (level == SamplingScopeLevel.setter ||
+          (pair?.contains(SamplingScopeLevel.setter) ?? false))
+        'settermachineid',
+      if (level == SamplingScopeLevel.hatcher ||
+          (pair?.contains(SamplingScopeLevel.hatcher) ?? false))
+        'hatchermachineid',
     };
     if (clean.keys.any((key) => !allowed.contains(key))) {
       throw ArgumentError('Scope identity contains an unsupported field.');
@@ -1568,6 +1574,10 @@ class PanelSamplingStateRepository {
       return Map.unmodifiable({
         for (final pairedLevel in pair)
           pairedLevel.name: clean[pairedLevel.name]!,
+        for (final pairedLevel in pair)
+          if (clean['${pairedLevel.name}machineid'] != null)
+            '${pairedLevel.name}MachineId':
+                clean['${pairedLevel.name}machineid']!,
         if (clean['name'] != null) 'name': clean['name']!,
       });
     }
@@ -1589,6 +1599,8 @@ class PanelSamplingStateRepository {
     }
     return Map.unmodifiable({
       'code': value,
+      if (clean['${level.name}machineid'] != null)
+        '${level.name}MachineId': clean['${level.name}machineid']!,
       if (level == SamplingScopeLevel.house && clean['id'] != null)
         'id': clean['id']!,
       if (clean['name'] != null) 'name': clean['name']!,

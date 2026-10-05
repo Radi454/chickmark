@@ -26,6 +26,7 @@ class SupabasePullSummary {
   final int customers;
   final int flocks;
   final int hatcheries;
+  final int hatcheryMachines;
   final int auditSessions;
   final int photos;
   final int bmkBreeds;
@@ -44,6 +45,7 @@ class SupabasePullSummary {
     this.customers = 0,
     this.flocks = 0,
     this.hatcheries = 0,
+    this.hatcheryMachines = 0,
     this.auditSessions = 0,
     this.photos = 0,
     this.bmkBreeds = 0,
@@ -63,6 +65,7 @@ class SupabasePullSummary {
       customers +
       flocks +
       hatcheries +
+      hatcheryMachines +
       auditSessions +
       photos +
       bmkBreeds +
@@ -81,6 +84,7 @@ class SupabasePullSummary {
     int? customers,
     int? flocks,
     int? hatcheries,
+    int? hatcheryMachines,
     int? auditSessions,
     int? photos,
     int? bmkBreeds,
@@ -99,6 +103,7 @@ class SupabasePullSummary {
       customers: customers ?? this.customers,
       flocks: flocks ?? this.flocks,
       hatcheries: hatcheries ?? this.hatcheries,
+      hatcheryMachines: hatcheryMachines ?? this.hatcheryMachines,
       auditSessions: auditSessions ?? this.auditSessions,
       photos: photos ?? this.photos,
       bmkBreeds: bmkBreeds ?? this.bmkBreeds,
@@ -910,6 +915,7 @@ class SupabaseService {
     required Future<void> Function(Map<String, dynamic>) upsertCustomer,
     required Future<void> Function(Map<String, dynamic>) upsertFlock,
     Future<void> Function(Map<String, dynamic>)? upsertHatchery,
+    Future<void> Function(Map<String, dynamic>)? upsertHatcheryMachine,
     Future<void> Function(Map<String, dynamic>)? upsertAuditSession,
     Future<void> Function(Map<String, dynamic>)? upsertPhoto,
     Future<void> Function(Map<String, dynamic>)? upsertBmkBreed,
@@ -955,6 +961,14 @@ class SupabaseService {
       if (upsertHatchery != null) {
         summary = summary.copyWith(
           hatcheries: await pullTable('hatcheries', upsertHatchery),
+        );
+      }
+      if (upsertHatcheryMachine != null) {
+        summary = summary.copyWith(
+          hatcheryMachines: await pullTable(
+            'hatchery_machines',
+            upsertHatcheryMachine,
+          ),
         );
       }
       summary = summary.copyWith(

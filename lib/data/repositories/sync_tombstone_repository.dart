@@ -23,6 +23,7 @@ class SyncTombstoneRepository {
     'audit_sessions',
     'govee_daily_captures',
     'flocks',
+    'hatchery_machines',
     'hatcheries',
     'customers',
   ];

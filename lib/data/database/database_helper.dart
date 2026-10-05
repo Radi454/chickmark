@@ -53,7 +53,7 @@ class DatabaseHelper {
   Future<Database> _openAppDatabase(String dbPath) {
     return openDatabase(
       dbPath,
-      version: 82,
+      version: 83,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = OFF');
       },
@@ -106,6 +106,7 @@ class DatabaseHelper {
     await _createCleanBmkEggBreakoutTable(db);
     await _createBmkOperationalStandardsTable(db);
     await _createHatcheryTables(db);
+    await _createHatcheryMachineTable(db);
     await _createAuditSessionTables(db);
     await _createPanelSampleSchemaTables(db);
     await _createPanelSamplingTables(db);
@@ -285,6 +286,9 @@ class DatabaseHelper {
     if (oldVersion < 82) {
       await _applyV82Upgrade(db);
     }
+    if (oldVersion < 83) {
+      await _applyV83Upgrade(db);
+    }
   }
 
   /// Critical tables the surgical repair pass guarantees exist. Panel sample
@@ -294,6 +298,7 @@ class DatabaseHelper {
     'customers',
     'flocks',
     'hatcheries',
+    'hatchery_machines',
     'audit_sessions',
     'photos',
     'activity_log',
@@ -353,6 +358,25 @@ class DatabaseHelper {
   /// columns without DEFAULT clauses).
   static const Map<String, List<String>> _criticalColumns = {
     'photos': ['observationId TEXT'],
+    'hatchery_machines': [
+      'id TEXT',
+      'hatcheryId TEXT',
+      'kind TEXT',
+      'code TEXT',
+      'name TEXT',
+      'batchSize INTEGER',
+      'trolleyCapacity INTEGER',
+      'traySize INTEGER',
+      'trolleyCount INTEGER',
+      'traysPerTrolley INTEGER',
+      'createdAt TEXT',
+      'updatedAt TEXT',
+      'createdBy TEXT',
+      "syncStatus TEXT NOT NULL DEFAULT 'pending'",
+      'dirtyAt TEXT',
+      'lastSyncedAt TEXT',
+      'syncError TEXT',
+    ],
     'panel_sampling_states': [
       'id TEXT',
       'sessionId TEXT',
@@ -927,6 +951,7 @@ class DatabaseHelper {
     await _createCleanBmkEggBreakoutTable(db);
     await _createBmkOperationalStandardsTable(db);
     await _createHatcheryTables(db);
+    await _createHatcheryMachineTable(db);
     await _createAuditSessionTables(db);
     await _createPanelSampleSchemaTables(db);
     await _createPanelSamplingTables(db);
@@ -1295,6 +1320,9 @@ class DatabaseHelper {
 
   @visibleForTesting
   Future<void> applyV82UpgradeForTest(Database db) => _applyV82Upgrade(db);
+
+  @visibleForTesting
+  Future<void> applyV83UpgradeForTest(Database db) => _applyV83Upgrade(db);
 
   Future<bool> customerExists(String customerId) async {
     final db = await this.db;

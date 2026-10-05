@@ -2048,8 +2048,8 @@ saved field names. Saved rows reconstruct those drafts after
 reopen. The save coordinator bypasses legacy hierarchy pruning for managed
 panels and attaches validated sampling metadata before the row upsert.
 
-SQLite version 82 adds `panel_sampling_states`, `panel_sampling_nodes`, and
-`panel_sample_serial_reservations` plus additive metadata columns on all nine
+SQLite version 83 includes `panel_sampling_states`, `panel_sampling_nodes`, and
+`panel_sample_serial_reservations` plus sampling metadata columns on all nine
 panel tables. Startup sync uploads sampling before measurements and pulls it
 before measurement rows. Server serial reconciliation uses a session/panel lock
 and deterministic collision repair; failed or deferred reconciliation blocks
@@ -2060,6 +2060,27 @@ Customer, hatchery, and flock reference forms accept an optional uppercase
 three-letter ASCII sampling code. Display codes use entered reference codes,
 the maintained breed abbreviation, selected scope segments, and `SA<n>`. Missing
 reference codes display the serial fallback instead of invented abbreviations.
+
+Hatcheries own registered Setter and Hatcher machines in `hatchery_machines`.
+Each machine has an immutable catalog UUID and a fixed physical ID/number;
+registration records its capacity, trolley capacity, and tray size, calculates
+the trolley count and trays per trolley (rounding partial final units upward),
+and stores those counts. Hatchery Management exposes a Machines manager, and
+sampling machine dropdowns provide inline registration and capacity editing.
+Read-only accounts can view the manager but cannot register or edit machines.
+Sampling filters machines by the visit's hatchery and machine kind. Trolley
+and Tray dropdowns use the selected registered machine's stored counts, rather
+than dividing the active sample's measurement values. A Pooled machine has no
+registered capacity context; adding numbered children requires selecting a
+registered machine first. Numbered dropdowns list values from 1 through the
+registered capacity. A saved zero or arbitrary legacy code is shown as a
+Legacy option and is preserved when editing the branch; positive numbers above
+the current capacity also remain available for that existing branch. Capacity
+edits do not delete or rewrite historical sampling nodes, sample IDs,
+measurements, or photos.
+Editing a sampling identity retains the selected sample when it still exists.
+Machine catalog rows use dirty-tracked push/pull after hatcheries; deleting a
+hatchery tombstones and removes its machines before the hatchery itself.
 
 `AuthProvider` manages auth state, Supabase sign-in/sign-up, offline/local login
 fallback, cached token checks, pending approval state, and logout. The temporary
@@ -2117,7 +2138,10 @@ access and set a new policy-compliant password through the separately verified
 `CustomersProvider` owns customer, flock, hatchery, audit, visit-session, lookup,
 and selected-customer state. It scopes data for customer-role users, supports
 customer/flock/hatchery CRUD, and loads visit summaries for customer detail
-views. Editors can delete a customer from the customer list card or customer
+views. Selecting a customer or refreshing its flock/hatchery list also rebuilds
+that customer's ID lookup entries, so inline registration and edits appear by
+name and sampling code in audit forms. Other customers' cached entries remain
+available. Editors can delete a customer from the customer list card or customer
 detail screen only after confirming a destructive dialog. Confirmed customer
 deletion removes local visit sessions, station rows, linked photos, Govee
 captures, lab-analysis reports, flocks, hatcheries, and the customer row, and
@@ -2134,6 +2158,10 @@ with stale local reference rows from recreating customers that another sync has
 already deleted from the cloud. It pushes dirty audit sessions, panel rows,
 Govee captures, dashboard actions, and Lab Analysis report/group/row tables,
 then pulls the same optional shared tables when they exist remotely.
+On push-capable devices, operational pulls preserve local pending or failed
+rows in push-enabled tables, including rows whose upload failed earlier in the
+same run. Pull-only customer devices and operational tables that are only
+pulled still accept remote updates.
 
 `AuditSessionProvider` owns the active visit session, station order, current
 station index, movement state, resume state, selected station keys, and session
@@ -5150,11 +5178,21 @@ Customer-role startup and background sync runs are explicitly pull-only: they
 skip local uploads and tombstone writes, then download only the tenant rows
 allowed by Supabase RLS. A missing user identity also defaults to pull-only
 instead of enabling writes.
+Tombstone uploads use the strict batch path first. If a batch is rejected, each event is retried individually; only events accepted by the server proceed to child-before-parent target deletion. Rejected events remain failed and retryable, including events whose remote target cannot provide a customer scope.
+
 Supabase derives each new tombstone's customer from the still-existing target
 row before remote deletion and snapshots the approved users authorized for that
 customer. RLS exposes the deletion event only to that audience (or an approved
 admin), preventing one tenant's tombstones from deleting another tenant's local
-cache. Historical tombstones that predate customer scope remain admin-only.
+cache. Sampling state, sampling nodes, and sample serial reservations derive
+their tenant through their audit session; registered hatchery machines derive
+their tenant through their owning hatchery. Tombstone retries cannot retarget
+the deletion or expand its original audience. Historical tombstones that
+predate customer scope remain admin-only. Reference-row pushes keep a strict
+batched upsert as the fast path. If a mixed batch is rejected, each ID-bearing
+row is retried as a singleton so an invalid or orphaned row does not
+block valid siblings; successful rows are acknowledged individually, while
+failed rows remain failed and eligible for a later retry.
 `BgSyncService` runs this sync after the shell starts and classifies the pass as
 successful, definitively offline, or a transient failure for the automatic
 coordinator. `AppSyncCoordinator` is the single scheduler for shell startup,
