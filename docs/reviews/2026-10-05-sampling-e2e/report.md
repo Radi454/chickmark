@@ -96,3 +96,11 @@ The global sync header records the last sync operation; it does not establish th
 Pinned only sqlite3 from 3.2.0 to 3.3.3; no other package lock changes and no schema migration. The upstream Chrome trailing-block fixture passed in isolated test storage. A further 37 actual repository/provider tests passed after the dependency update, and the full release web build succeeded. The full local app now opens its previously failing IndexedDB database at the unchanged 127.0.0.1:57863 origin and displays existing visits with no error console entries; storage was preserved.
 
 Read-only Supabase checks confirm the three sampling tables, reconcile_panel_sample_serials RPC, and both sampling migrations exist in the configured ChickMark project. Missing migration is therefore ruled out; the precise QA visit sync error remains unconfirmed.
+
+## Published recovery handoff
+
+Pages run 37356455285 succeeded for startup-fix commit ab19495. The live browser initially reused the old cached bundle; navigating to the fresh entry URL `https://radi454.github.io/chickmark/?v=ab19495#/main` reached the normal Sign In screen. The latest observed error entries predate that successful fresh-entry navigation. Authenticated after-fix forms still require sign-in.
+
+Read-only cloud queries found neither the new QA hatchery nor flock, confirming cloud convergence has not passed. The QA records remain locally and permanent deletion/cleanup still awaits approval. This task is not accepted as complete.
+
+![Live app recovered to Sign In](15-live-recovered-signin.png)
