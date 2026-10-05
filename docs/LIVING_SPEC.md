@@ -5495,3 +5495,9 @@ row security nor the parent's policies.
 The dated change history lives in `CHANGELOG.md`. Add an entry there for every
 meaningful change, newest at the top, and keep this document describing only
 current behavior.
+
+### Web database compatibility
+
+The web database uses sqlite3 3.3.3. Its IndexedDB loader ignores obsolete
+blocks beyond the recorded file length, preserving the database while opening
+storage written by earlier versions. Startup does not clear browser storage.

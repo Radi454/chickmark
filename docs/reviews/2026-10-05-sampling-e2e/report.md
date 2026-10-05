@@ -15,7 +15,7 @@ Scope: current published ChickMark sampling controls and live form flows; offlin
 7. Branch deletion — passed preview and cancellation; permanent deletion awaits specific approval. Dialog reports one affected measurement and no photos/notes. See 09-delete-confirmation.jpg.
 8. Hatcher ancestor creation — failed selection/continuation. A new branch without a terminal leaf cannot become active; clicking it does nothing. See 10-hatcher-branch-no-selection.jpg. Correction creates/selects an identified default Tray below a new ancestor.
 9. Fresh/Candled breakout switching — passed independent count restoration (Fresh 2/30; Candled 3/150). See 11-breakout-independent.jpg.
-10. Save — passed local saved indicator. Reload returned to Sign In; authenticated reopened-visit and cross-device verification await sign-in.
+10. Save — passed local saved indicator. The authenticated session subsequently became available and the saved QA visit reopened. The visit reports Sync: Failed, while the global header says Synced just now; its flock lookup falls back to the UUID. After deployment 426858c, reload reproduced the same IndexedDB byte-buffer startup failure as the fixed local origin. Post-fix form checks and cloud convergence remain pending.
 
 ## Confirmed automated checks in this run
 
@@ -82,3 +82,17 @@ The real SamplingScopeControls and app theme were rendered in a temporary in-mem
 General health: visible usability and sample-ownership defects were found and corrected. Final acceptance remains pending authenticated reopen, permanent deletion approval, photo/cloud convergence checks, and human review.
 
 Files changed: sampling controls/provider; Setter, Hatcher, Egg and Chick screens; Arabic localization; six focused widget/provider test files; living spec, changelog and this evidence folder. No schema or remote-service change.
+
+## Additional reload and sync findings
+
+Pages run 37355321075 succeeded for commit 426858c. Browser reload then failed inside sqlite3 IndexedDB `readFully` while constructing a Uint8Array; the app rendered blank. The deployed dependency lock uses sqlite3 3.2.0. Upstream sqlite3 3.3.3 documents a fix that ignores obsolete blocks beyond the file length, matching the traced call. See [upstream issue 380](https://github.com/simolus3/sqlite3.dart/issues/380). Browser storage was not cleared.
+
+The global sync header records the last sync operation; it does not establish that each visit synced. The visit's failed pill aggregates session/station row status. Exact `syncError` is stored locally and not exposed by the current Audits UI, so missing cloud schema/RPC/RLS and parent-reference errors remain hypotheses. No production migration was executed.
+
+![Blank page after IndexedDB startup exception](14-reload-startup-error.png)
+
+## Startup compatibility repair verification
+
+Pinned only sqlite3 from 3.2.0 to 3.3.3; no other package lock changes and no schema migration. The upstream Chrome trailing-block fixture passed in isolated test storage. A further 37 actual repository/provider tests passed after the dependency update, and the full release web build succeeded. The full local app now opens its previously failing IndexedDB database at the unchanged 127.0.0.1:57863 origin and displays existing visits with no error console entries; storage was preserved.
+
+Read-only Supabase checks confirm the three sampling tables, reconcile_panel_sample_serials RPC, and both sampling migrations exist in the configured ChickMark project. Missing migration is therefore ruled out; the precise QA visit sync error remains unconfirmed.

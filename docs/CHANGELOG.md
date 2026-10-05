@@ -1,5 +1,10 @@
 # ChickMark Change Log
 
+- 2026-10-05: Pinned sqlite3 to 3.3.3 to apply the upstream web IndexedDB
+  loader fix for obsolete blocks beyond a file's current length. Existing
+  browser databases open without a storage reset; database schema and saved
+  records remain unchanged.
+
 - 2026-10-05: Improved sampling controls with readable scope and selected-chip
   labels, visible Add actions, and independent Setter naming outside Chick
   Quality's paired Setter / Hatcher scope. Empty House pickers now explain how
