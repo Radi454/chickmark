@@ -1,5 +1,10 @@
 # ChickMark Change Log
 
+- 2026-10-06: Excluded unsupported legacy update timestamps from hatchery
+  cloud payloads in both mapped and compatibility upserts, preventing old local
+  schema fields from rejecting otherwise valid hatchery uploads. Added a
+  focused payload regression while preserving local dirty tracking.
+
 - 2026-10-06: Simplified sampling context to the selected sample serial when
   reference codes are incomplete and hid redundant singleton native selectors.
   Added inline house registration/editing, excluded used sibling identities

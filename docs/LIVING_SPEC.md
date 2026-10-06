@@ -2101,6 +2101,9 @@ and historical sample identities.
 Editing a sampling identity retains the selected sample when it still exists.
 Machine catalog rows use dirty-tracked push/pull after hatcheries; deleting a
 hatchery tombstones and removes its machines before the hatchery itself.
+Hatchery cloud payloads omit legacy local `updatedAt`/`updated_at` fields,
+which the remote hatchery schema does not support. Other tables retain their
+supported update timestamps, and local dirty tracking remains unchanged.
 Setter/Hatcher optimizer saves validate identities from their loaded canonical
 sampling trees. Stale blank machine labels in their legacy adapter rows do not
 block those saves; panels without a managed tree retain legacy identity

@@ -61,6 +61,17 @@ tree still reject invalid machine identities.
 - Deployment and post-deployment browser verification are pending at this
   checkpoint.
 
+## Cloud follow-up
+
+Pages deployment for `a17eac4` succeeded. Remote inspection found the QA flock
+but no QA hatchery or catalog row. Server request logs showed a hatchery
+payload containing `updated_at`, which is absent from the remote schema.
+The cloud payload sanitizer now omits that legacy local field in camel and
+snake case, without changing other tables or local dirty tracking. The new
+regression first failed with the unsupported field present; the full Supabase
+security/payload test file then passed all 12 tests, including the independent
+root rerun. This establishes payload handling, not live cloud convergence.
+
 ## Limits and handoff
 
 The original live tab remains open because its station save failed; it must

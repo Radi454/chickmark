@@ -113,6 +113,30 @@ void main() {
     },
   );
 
+  test('hatchery upsert payload omits legacy updated timestamp columns', () {
+    final payload = toSupabaseUpsertPayload('hatcheries', {
+      'id': 'hatchery-1',
+      'customerId': 'customer-1',
+      'name': 'QA Hatchery',
+      'samplingCode': 'QAH',
+      'createdAt': '2026-10-06T00:00:00Z',
+      'createdBy': 'user-1',
+      'updatedAt': 'legacy-camel-timestamp',
+      'updated_at': 'legacy-snake-timestamp',
+      'syncStatus': 'pending',
+      'dirtyAt': 'device-only',
+    });
+
+    expect(payload, {
+      'id': 'hatchery-1',
+      'customer_id': 'customer-1',
+      'name': 'QA Hatchery',
+      'sampling_code': 'QAH',
+      'created_at': '2026-10-06T00:00:00Z',
+      'created_by': 'user-1',
+    });
+  });
+
   test(
     'refreshAvailability waits for Supabase initialization readiness',
     () async {

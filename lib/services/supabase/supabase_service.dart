@@ -140,7 +140,14 @@ Map<String, dynamic> _stripLocalOnlyColumnsForSupabase(
   String table,
   Map<String, dynamic> row,
 ) {
-  return stripSyncMeta(row);
+  final payload = stripSyncMeta(row);
+  if (table == 'hatcheries') {
+    // Older local schemas may retain an updatedAt value, but the mirrored
+    // hatcheries table has never had an updated_at column.
+    payload.remove('updatedAt');
+    payload.remove('updated_at');
+  }
+  return payload;
 }
 
 String _supabaseSnakeCase(String key) {
