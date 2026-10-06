@@ -1,5 +1,14 @@
 # ChickMark Change Log
 
+- 2026-10-06: Simplified sampling context to the selected sample serial when
+  reference codes are incomplete and hid redundant singleton native selectors.
+  Added inline house registration/editing, excluded used sibling identities
+  from scope dropdowns while retaining edit choices and complete-pair semantics,
+  and exposed capacity editing in numbered pickers. Setter/Hatcher forms and
+  choices now use only their fixed physical ID. Managed optimizer saves use
+  canonical sampling identities instead of rejecting stale blank legacy adapter
+  labels. Added widget and real SQLite save/reopen regression coverage.
+
 - 2026-10-05: Isolated rejected tombstone uploads so accepted deletion events still proceed through the existing child-before-parent delete order; rejected or missing-scope events stay retryable.
 
 - 2026-10-05: Extended tenant-scoped tombstone resolution to panel sampling

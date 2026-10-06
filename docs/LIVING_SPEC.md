@@ -2060,6 +2060,10 @@ Customer, hatchery, and flock reference forms accept an optional uppercase
 three-letter ASCII sampling code. Display codes use entered reference codes,
 the maintained breed abbreviation, selected scope segments, and `SA<n>`. Missing
 reference codes display the serial fallback instead of invented abbreviations.
+The sampling card displays `Selected sample: SA<n>` when the full code is not
+available, without a missing-code prompt or synthesized scope prefixes. A
+single native sample does not display a redundant one-item sample selector.
+Multiple native samples remain selectable.
 
 Hatcheries own registered Setter and Hatcher machines in `hatchery_machines`.
 Each machine has an immutable catalog UUID and a fixed physical ID/number;
@@ -2067,6 +2071,9 @@ registration records its capacity, trolley capacity, and tray size, calculates
 the trolley count and trays per trolley (rounding partial final units upward),
 and stores those counts. Hatchery Management exposes a Machines manager, and
 sampling machine dropdowns provide inline registration and capacity editing.
+Machine forms and choices display the fixed physical ID/number without a
+separate name field. Existing legacy machine names remain stored; new machine
+rows use the normalized physical ID in that legacy storage field.
 Read-only accounts can view the manager but cannot register or edit machines.
 Sampling filters machines by the visit's hatchery and machine kind. Trolley
 and Tray dropdowns use the selected registered machine's stored counts, rather
@@ -2078,9 +2085,26 @@ Legacy option and is preserved when editing the branch; positive numbers above
 the current capacity also remain available for that existing branch. Capacity
 edits do not delete or rewrite historical sampling nodes, sample IDs,
 measurements, or photos.
+Scope dropdowns exclude identities already used by siblings under the same
+parent, while retaining the identity being edited. Paired Setter/Hatcher
+choices exclude an existing complete pair, allowing either machine to be used
+in a different pair. Numbered choices remain available under different parents.
+An exhausted numbered picker explains that all registered numbers are in use
+and offers capacity editing. Changing capacities while the picker is open
+preserves an existing out-of-capacity identity as Legacy and clears a newly
+chosen value that becomes unavailable. Legacy machine paths without a usable
+catalog UUID can resolve an exact physical ID within the same hatchery and
+machine kind.
+House pickers provide inline registration and editing of flock-owned house
+names and codes. Editing retains the house UUID, other registration fields,
+and historical sample identities.
 Editing a sampling identity retains the selected sample when it still exists.
 Machine catalog rows use dirty-tracked push/pull after hatcheries; deleting a
 hatchery tombstones and removes its machines before the hatchery itself.
+Setter/Hatcher optimizer saves validate identities from their loaded canonical
+sampling trees. Stale blank machine labels in their legacy adapter rows do not
+block those saves; panels without a managed tree retain legacy identity
+validation.
 
 `AuthProvider` manages auth state, Supabase sign-in/sign-up, offline/local login
 fallback, cached token checks, pending approval state, and logout. The temporary

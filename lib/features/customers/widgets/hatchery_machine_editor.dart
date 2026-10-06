@@ -31,7 +31,6 @@ class _HatcheryMachineEditorDialogState
     extends State<HatcheryMachineEditorDialog> {
   final _formKey = GlobalKey<FormState>();
   late final _code = TextEditingController(text: widget.machine?.code ?? '');
-  late final _name = TextEditingController(text: widget.machine?.name ?? '');
   late final _batch = TextEditingController(
     text: widget.machine?.batchSize.toString() ?? '',
   );
@@ -46,7 +45,6 @@ class _HatcheryMachineEditorDialogState
   @override
   void dispose() {
     _code.dispose();
-    _name.dispose();
     _batch.dispose();
     _trolley.dispose();
     _tray.dispose();
@@ -106,13 +104,6 @@ class _HatcheryMachineEditorDialogState
                   validator: (value) => value?.trim().isNotEmpty == true
                       ? null
                       : context.tr('Enter a machine ID.'),
-                ),
-                TextFormField(
-                  controller: _name,
-                  decoration: InputDecoration(labelText: context.tr('Name')),
-                  validator: (value) => value?.trim().isNotEmpty == true
-                      ? null
-                      : context.tr('Enter a name.'),
                 ),
                 _positiveIntegerField(
                   controller: _batch,
@@ -197,7 +188,9 @@ class _HatcheryMachineEditorDialogState
         hatcheryId: widget.hatcheryId,
         kind: widget.kind,
         code: previous?.code ?? _code.text,
-        name: _name.text.trim(),
+        // `name` remains a required legacy storage column. New registrations
+        // use their normalized physical ID; existing rows keep their old name.
+        name: previous?.name ?? HatcheryMachineModel.normalizeCode(_code.text),
         batchSize: batch,
         trolleyCapacity: trolley,
         traySize: tray,
@@ -309,7 +302,7 @@ class _HatcheryMachineManagementSheetState
                   ))
                     ListTile(
                       contentPadding: EdgeInsets.zero,
-                      title: Text('${machine.code} · ${machine.name}'),
+                      title: Text(machine.code),
                       subtitle: Text(
                         '${machine.trolleyCount} ${context.tr('trolleys')} · '
                         '${machine.traysPerTrolley} ${context.tr('trays per trolley')}',

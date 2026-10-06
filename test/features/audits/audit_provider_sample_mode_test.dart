@@ -231,6 +231,35 @@ void main() {
     },
   );
 
+  test(
+    'a restored blank Setter identity still blocks save without a managed tree',
+    () async {
+      final provider = AuditProvider(autosaveEnabled: false);
+      final setterContext = stationContext('Setters');
+      provider.initialize(setterContext, sessionId: 'session-1', notify: false);
+      provider.setStationSampleMode(StationSampleModel.sampleModeComparison);
+      final draft = provider.activeDraft;
+      final blankSample = provider.activeStationSample.copyWith(
+        legacyAuditId: draft.id,
+        sampleMode: StationSampleModel.sampleModeComparison,
+        sampleKind: StationSampleModel.sampleKindMachine,
+        comparisonType: StationSampleModel.comparisonTypeMachine,
+        setterNo: '',
+      );
+      provider.initialize(
+        setterContext,
+        existingAudits: [draft],
+        existingStationSamples: [blankSample],
+        readOnly: false,
+        sessionId: 'session-1',
+        notify: false,
+      );
+
+      expect(provider.samplingManagedPanelKeys, isEmpty);
+      expect(await provider.saveSamplesWithResult(), isFalse);
+    },
+  );
+
   test('removeActiveHatch keeps compare hatch numbers sequential', () {
     final provider = AuditProvider();
     provider.initialize(context(), notify: false);

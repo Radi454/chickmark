@@ -292,6 +292,120 @@ void main() {
   }
 
   test(
+    'managed Setter identity and reading save despite a stale blank legacy template',
+    () async {
+      final context = AuditContext(
+        auditType: 'Setters',
+        customerId: 'c',
+        flockId: 'f',
+        hatcheryId: 'h',
+        breed: 'Ross308',
+        date: '2026-10-05',
+      );
+      final provider = AuditProvider(autosaveEnabled: false);
+      provider.initialize(context, sessionId: 'session', notify: false);
+      provider.setStationSampleMode(StationSampleModel.sampleModeComparison);
+
+      await provider.loadPanelSamplingState('setter_optimizing');
+      final setter = await provider.addPanelScopeIdentity(
+        'setter_optimizing',
+        level: SamplingScopeLevel.setter,
+        parentId: null,
+        identity: const {'code': 'SET-1'},
+      );
+      final trolley = await provider.addPanelScopeIdentity(
+        'setter_optimizing',
+        level: SamplingScopeLevel.trolley,
+        parentId: setter.id,
+        identity: const {'code': 'TR-2'},
+      );
+      final tray = await provider.addPanelTerminalSample(
+        'setter_optimizing',
+        parentId: trolley.id,
+        identity: const {'code': 'T-1', 'name': 'Tray 1'},
+      );
+      await provider.selectPanelSample('setter_optimizing', tray.sampleId!);
+      provider.updateField('so_setpointF', 100.4);
+
+      expect(provider.samplingManagedPanelKeys, contains('setter_optimizing'));
+      expect(await provider.saveSamplesWithResult(), isTrue);
+
+      final panels = PanelSampleRepository(databaseHelper: helper);
+      final rows = await panels.getRowsBySessionId(
+        'setter_optimizing',
+        'session',
+      );
+      expect(rows, hasLength(1));
+      expect(rows.single['setter'], 'SET-1');
+      expect(rows.single['setpointF'], 100.4);
+      final path = jsonDecode(rows.single['samplingPathJson']! as String);
+      expect(path['setter'], 'SET-1');
+      expect(path['trolley'], 'TR-2');
+      expect(path['tray'], 'T-1');
+
+      final restored = reconstructStation(
+        stationKey: 'setters',
+        sessionId: 'session',
+        context: AuditContextData(
+          auditType: 'Setters',
+          customerId: 'c',
+          flockId: 'f',
+          hatcheryId: 'h',
+          breed: 'Ross308',
+          date: '2026-10-05',
+        ),
+        rowsByPanel: {
+          'setter_optimizing': rows.map(Map<String, dynamic>.from).toList(),
+        },
+      );
+      final staleLegacySample = restored.stationSamples
+          .singleWhere((sample) => sample.sampleId == tray.sampleId)
+          .copyWith(
+            legacyAuditId: provider.activeDraft.id,
+            sampleMode: StationSampleModel.sampleModeComparison,
+            sampleKind: StationSampleModel.sampleKindMachine,
+            comparisonType: StationSampleModel.comparisonTypeMachine,
+            setterNo: '',
+          );
+      final reopenedProvider = AuditProvider(autosaveEnabled: false);
+      reopenedProvider.initialize(
+        context,
+        existingAudits: [provider.activeDraft],
+        existingStationSamples: [staleLegacySample],
+        readOnly: false,
+        sessionId: 'session',
+        samplingDraftsByPanel: restored.samplingDraftsByPanel,
+        notify: false,
+      );
+      await reopenedProvider.loadPanelSamplingState('setter_optimizing');
+      expect(reopenedProvider.activeStationSample.setterNo, '');
+      expect(
+        reopenedProvider
+            .draftForSample('setter_optimizing', tray.sampleId!)
+            ?.soSetpointF,
+        100.4,
+      );
+      expect(await reopenedProvider.saveSamplesWithResult(), isTrue);
+
+      final reopenedRows = await panels.getRowsBySessionId(
+        'setter_optimizing',
+        'session',
+      );
+      final reopenedTargetRows = reopenedRows
+          .where((row) => row['sampleId'] == tray.sampleId)
+          .toList();
+      expect(reopenedTargetRows, hasLength(1));
+      expect(reopenedTargetRows.single['setpointF'], 100.4);
+      final reopenedPath = jsonDecode(
+        reopenedTargetRows.single['samplingPathJson']! as String,
+      );
+      expect(reopenedPath['setter'], 'SET-1');
+      expect(reopenedPath['trolley'], 'TR-2');
+      expect(reopenedPath['tray'], 'T-1');
+    },
+  );
+
+  test(
     'chick quality values and photos retain sample ownership across save, rename, reopen, and sibling deletion',
     () async {
       final trees = PanelSamplingStateRepository(databaseHelper: helper);

@@ -67,11 +67,12 @@ void main() {
     await tester.pumpAndSettle();
 
     final fields = find.byType(TextFormField);
+    expect(fields, findsNWidgets(4));
+    expect(find.text('Name'), findsNothing);
     await tester.enterText(fields.at(0), 'S-07');
-    await tester.enterText(fields.at(1), 'Setter North');
-    await tester.enterText(fields.at(2), '19200');
-    await tester.enterText(fields.at(3), '4800');
-    await tester.enterText(fields.at(4), '150');
+    await tester.enterText(fields.at(1), '19200');
+    await tester.enterText(fields.at(2), '4800');
+    await tester.enterText(fields.at(3), '150');
     await tester.pump();
 
     expect(find.text('Trolleys: 4'), findsOneWidget);
@@ -80,6 +81,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(repository.saved?.code, 'S-07');
+    expect(repository.saved?.name, 'S-07');
     expect(repository.saved?.trolleyCount, 4);
     expect(repository.saved?.traysPerTrolley, 32);
   });
@@ -113,15 +115,18 @@ void main() {
     await tester.pumpAndSettle();
 
     final fields = find.byType(TextFormField);
+    expect(fields, findsNWidgets(4));
+    expect(find.text('Name'), findsNothing);
     expect(tester.widget<TextFormField>(fields.first).enabled, isFalse);
-    await tester.enterText(fields.at(2), '30001');
-    await tester.enterText(fields.at(3), '5000');
-    await tester.enterText(fields.at(4), '200');
+    await tester.enterText(fields.at(1), '30001');
+    await tester.enterText(fields.at(2), '5000');
+    await tester.enterText(fields.at(3), '200');
     await tester.tap(find.text('Save'));
     await tester.pumpAndSettle();
 
     expect(repository.saved?.id, existing.id);
     expect(repository.saved?.code, existing.code);
+    expect(repository.saved?.name, existing.name);
     expect(repository.saved?.trolleyCount, 7);
     expect(repository.saved?.traysPerTrolley, 25);
   });
@@ -144,7 +149,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('S-07 · Setter North'), findsOneWidget);
+    expect(find.text('S-07'), findsOneWidget);
+    expect(find.text('S-07 · Setter North'), findsNothing);
     final registerButtons = tester.widgetList<TextButton>(
       find.widgetWithText(TextButton, 'Register'),
     );

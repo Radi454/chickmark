@@ -739,6 +739,26 @@ const Map<String, String> _ar = {
   'trolleys': 'عربات',
   'trays per trolley': 'صوانٍ لكل عربة',
   'Register machine': 'تسجيل جهاز',
+  'All registered machine choices for this scope are already used in this branch.':
+      'كل الأجهزة المسجلة لهذا النطاق مستخدمة بالفعل في هذا الفرع.',
+  'No registered machine was found for this hatchery. Register a machine to add this scope.':
+      'لا توجد أجهزة مسجلة لهذا المفقس. سجّل جهازًا لإضافة هذا النطاق.',
+  'Register house': 'تسجيل عنبر',
+  'All registered houses are already used in this branch.':
+      'كل العنابر المسجلة مستخدمة بالفعل في هذا الفرع.',
+  'No houses are registered for this flock yet.':
+      'لم تُسجل عنابر لهذا القطيع بعد.',
+  'Register House': 'تسجيل عنبر',
+  'Edit House': 'تعديل العنبر',
+  'Enter a house name.': 'أدخل اسم العنبر.',
+  'House could not be saved.': 'تعذر حفظ العنبر.',
+  'Edit house': 'تعديل العنبر',
+  'House code': 'رمز العنبر',
+  'Selected sample:': 'العينة المختارة:',
+  'This machine is not available in the selected hatchery. Edit its scope to select a registered machine before adding numbered options.':
+      'هذا الجهاز غير متاح في المفقس المختار. عدّل نطاقه لاختيار جهاز مسجل قبل إضافة الأرقام.',
+  'All registered {scope} numbers are already used in this branch.':
+      'كل أرقام {scope} المسجلة مستخدمة بالفعل في هذا الفرع.',
   'Registered machines': 'الأجهزة المسجلة',
   'Machines': 'الأجهزة',
   'Register': 'تسجيل',

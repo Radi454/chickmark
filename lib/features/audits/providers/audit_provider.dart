@@ -1890,15 +1890,28 @@ class AuditProvider extends ChangeNotifier {
       final draftsToSave = List<AuditModel>.from(
         isCompareMode ? _drafts : [_drafts.first],
       );
-      if (_stationSamples.any(
-        (sample) => _wouldBlankNonPoolIdentity(
-          sample,
-          houseNo: sample.houseNo,
-          houseLabel: sample.houseLabel,
-          setterNo: sample.setterNo,
-          hatcherNo: sample.hatcherNo,
-        ),
-      )) {
+      if (_stationSamples.any((sample) {
+        // Setter and Hatcher screens persist identity from the canonical
+        // sampling tree when it is loaded. Their legacy station-sample rows
+        // are only adapters, so stale blank machine labels there must not
+        // block a valid managed-tree save. Keep the legacy guard for every
+        // panel that is not owned by a loaded canonical tree.
+        final managedMachineIdentity = switch (sample.sectorType) {
+          StationSampleModel.sectorSetterOptimizing =>
+            samplingManagedPanelKeys.contains('setter_optimizing'),
+          StationSampleModel.sectorHatcherOptimizing =>
+            samplingManagedPanelKeys.contains('hatcher_optimizing'),
+          _ => false,
+        };
+        return !managedMachineIdentity &&
+            _wouldBlankNonPoolIdentity(
+              sample,
+              houseNo: sample.houseNo,
+              houseLabel: sample.houseLabel,
+              setterNo: sample.setterNo,
+              hatcherNo: sample.hatcherNo,
+            );
+      })) {
         return false;
       }
       if (draftsToSave.any(_hasInvalidEggGrading)) return false;
