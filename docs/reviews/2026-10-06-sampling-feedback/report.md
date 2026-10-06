@@ -232,3 +232,33 @@ schema or permission was changed. The 38-test photo/security run passed.
 The delegated compatibility implementation was interrupted by model usage
 limits; root finished its tests, corrected its response list type, and reviewed
 the diff. The auth diagnosis could not finish for the same reason.
+
+Root completed the auth diagnosis: SecureTokenStore and SessionTrustStore use
+in-memory maps on web. Those maps disappear on browser reload, and
+UserRepository.getRememberedUser requires a stored token. The repeat sign-in
+is therefore explained by existing browser auth behavior, not by the photo
+patch. No authentication storage behavior was changed.
+
+## Latest live checkpoint
+
+Pages run 37471584131 successfully deployed `2f9102a`. Fresh login retried
+the existing photo: cloud metadata now has id `1791286389781000`, status
+`synced`, field `turning_angle`, and a private
+Supabase path. A join verifies the storage object exists and the associated
+Setter row is SA8 UUID `be1c1974-d0e9-4294-880d-ff47505cc566` with
+100.4°F. The cloud panel photo field is null, confirming inline image bytes
+were removed from the panel payload while photo metadata carries the path.
+
+Screenshot 09 records the final nested tab design. Opening Remove Trolley 4
+shows 1 branch, 1 measurement, 1 photo, 0 notes (10). Permanent deletion has
+not been performed: browser policy requires fresh confirmation at action time,
+and a question is pending for only the named QA records. Live deletion/cleanup
+and independent multi-device UI verification remain open. Human review is
+pending; the product task is not marked complete.
+
+Handoff: `sampling-feedback-20261006`. Changed photo capture/rendering, cloud
+metadata compatibility, reconstruction, focused fixtures/tests, spec/changelog
+and evidence. Latest validation: 38 photo/security tests pass, integrated UI
+29 tests pass, release build passes, analyzer only the existing environment
+loader warning. Changes were reviewed and pushed to main; no unrelated
+records were removed and primary checkout local edits remain preserved.
