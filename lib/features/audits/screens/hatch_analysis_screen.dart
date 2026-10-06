@@ -14,6 +14,7 @@ import '../../../data/models/sample_mode.dart';
 import '../../../data/models/station_sample_model.dart';
 import '../../../data/models/sampling_scope.dart';
 import '../../../data/repositories/benchmark_lookup.dart';
+import '../../../providers/customers_provider.dart';
 import '../providers/audit_provider.dart';
 import '../widgets/audit_autosave_status.dart';
 import '../widgets/audit_keyboard_dismiss.dart';
@@ -1042,7 +1043,10 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
                     Expanded(
                       child: _buildGradientInfoTile(
                         'Flock',
-                        widget.context.flockId,
+                        _resolveFlockDisplayName(
+                          context,
+                          widget.context.flockId,
+                        ),
                       ),
                     ),
                     const SizedBox(width: AppSizes.spaceSm),
@@ -3328,6 +3332,15 @@ class _HatchAnalysisScreenState extends State<HatchAnalysisScreen> {
     if (value is num) return value.toInt();
     if (value is String) return int.tryParse(value);
     return null;
+  }
+}
+
+String _resolveFlockDisplayName(BuildContext context, String flockId) {
+  try {
+    return context.read<CustomersProvider>().flockById(flockId)?.flockId ??
+        flockId;
+  } on ProviderNotFoundException {
+    return flockId;
   }
 }
 

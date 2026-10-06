@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/data/models/audit_model.dart';
+import 'package:hatchaudit/data/models/flock_model.dart';
+import 'package:hatchaudit/data/models/hatchery_model.dart';
 import 'package:hatchaudit/data/models/sampling_scope.dart';
 import 'package:hatchaudit/data/models/station_sample_model.dart';
 import 'package:hatchaudit/data/repositories/audit_repository.dart';
@@ -13,6 +15,7 @@ import 'package:hatchaudit/features/audits/screens/audit_context_screen.dart';
 import 'package:hatchaudit/features/audits/screens/chick_quality_screen.dart';
 import 'package:hatchaudit/features/auth/providers/auth_provider.dart';
 import 'package:hatchaudit/providers/app_provider.dart';
+import 'package:hatchaudit/providers/customers_provider.dart';
 import 'package:hatchaudit/services/supabase/supabase_service.dart';
 import 'package:hatchaudit/features/audits/widgets/audit_numeric_keyboard.dart';
 import 'package:mocktail/mocktail.dart';
@@ -22,6 +25,19 @@ import 'support/memory_panel_sampling_state_repository.dart';
 class MockSupabaseService extends Mock implements SupabaseService {}
 
 class MockAuditRepository extends Mock implements AuditRepository {}
+
+class _ReferenceCustomersProvider extends CustomersProvider {
+  _ReferenceCustomersProvider({this.flock, this.hatchery});
+
+  final FlockModel? flock;
+  final HatcheryModel? hatchery;
+
+  @override
+  FlockModel? flockById(String? id) => id == flock?.id ? flock : null;
+
+  @override
+  HatcheryModel? hatcheryById(String? id) => id == hatchery?.id ? hatchery : null;
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -61,10 +77,12 @@ void main() {
     String? breed,
     int? flockAgeWeeks,
     String? sessionId,
+    String? hatcheryId,
   }) => AuditContextData(
     auditType: 'Chicks',
     customerId: 'customer-1',
     flockId: 'flock-1',
+    hatcheryId: hatcheryId,
     sessionId: sessionId ?? 'chick-screen-${screenSession++}',
     breed: breed,
     flockAgeWeeks: flockAgeWeeks,
@@ -78,6 +96,7 @@ void main() {
     AuditModel? initialAudit,
     List<StationSampleModel> initialStationSamples = const [],
     ChickBmkWeightLookup? bmkChickWeightLookup,
+    CustomersProvider? customersProvider,
   }) async {
     final providerForScreen = provider ?? screenProvider();
     await tester.pumpWidget(
@@ -90,6 +109,9 @@ void main() {
             create: (_) => AuthProvider(supabaseService: MockSupabaseService()),
           ),
           ChangeNotifierProvider(create: (_) => AppProvider()),
+          ChangeNotifierProvider<CustomersProvider>(
+            create: (_) => customersProvider ?? CustomersProvider(),
+          ),
         ],
         child: MaterialApp(
           theme: ThemeData(splashFactory: NoSplash.splashFactory),
@@ -1034,9 +1056,31 @@ void main() {
   testWidgets('weight hero renders flock context as a compact strip', (
     tester,
   ) async {
+    final flock = FlockModel(
+      id: 'flock-1',
+      customerId: 'customer-1',
+      flockId: 'Sampling QA',
+      breed: 'Ross308',
+      entryDate: DateTime.utc(2026, 1, 1),
+    );
+    final hatchery = HatcheryModel(
+      id: 'hatchery-1',
+      customerId: 'customer-1',
+      name: 'QA Hatchery',
+      createdAt: DateTime.utc(2026, 1, 1),
+      createdBy: 'test',
+    );
     await pumpScreen(
       tester,
-      contextOverride: contextData(breed: 'Ross308', flockAgeWeeks: 41),
+      customersProvider: _ReferenceCustomersProvider(
+        flock: flock,
+        hatchery: hatchery,
+      ),
+      contextOverride: contextData(
+        breed: 'Ross308',
+        flockAgeWeeks: 41,
+        hatcheryId: hatchery.id,
+      ),
     );
 
     await tester.ensureVisible(
@@ -1049,7 +1093,22 @@ void main() {
       findsOneWidget,
     );
     expect(find.byKey(const ValueKey('chick-weight-flock-tile')), findsNothing);
-    expect(find.text('flock-1'), findsWidgets);
+    expect(find.text('Sampling QA'), findsOneWidget);
+    expect(find.text('QA Hatchery'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('chick-quality-header-card')),
+        matching: find.text('hatchery-1'),
+      ),
+      findsNothing,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('chick-quality-panel-weights')),
+        matching: find.text('flock-1'),
+      ),
+      findsNothing,
+    );
     expect(find.text('Ross308'), findsOneWidget);
     expect(find.text('41 wks'), findsWidgets);
   });

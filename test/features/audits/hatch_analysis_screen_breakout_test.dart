@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/core/constants/app_colors.dart';
 import 'package:hatchaudit/data/repositories/benchmark_lookup.dart';
+import 'package:hatchaudit/data/models/flock_model.dart';
 import 'package:hatchaudit/data/models/sampling_scope.dart';
 import 'package:hatchaudit/features/audits/models/egg_breakout_sample.dart';
 import 'package:hatchaudit/features/audits/providers/audit_provider.dart';
@@ -12,6 +13,7 @@ import 'package:hatchaudit/features/audits/screens/hatch_analysis_screen.dart';
 import 'package:hatchaudit/features/audits/widgets/photo_button.dart';
 import 'package:hatchaudit/features/audits/widgets/sampling_scope_controls.dart';
 import 'package:hatchaudit/features/auth/providers/auth_provider.dart';
+import 'package:hatchaudit/providers/customers_provider.dart';
 import 'package:hatchaudit/services/supabase/supabase_service.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:provider/provider.dart';
@@ -20,6 +22,15 @@ import 'support/memory_panel_sampling_state_repository.dart';
 class MockSupabaseService extends Mock implements SupabaseService {}
 
 class MockBenchmarkLookup extends Mock implements BenchmarkLookup {}
+
+class _FlockLabelCustomersProvider extends CustomersProvider {
+  _FlockLabelCustomersProvider(this.flock);
+
+  final FlockModel flock;
+
+  @override
+  FlockModel? flockById(String? id) => id == flock.id ? flock : null;
+}
 
 MockBenchmarkLookup mockBenchmarkLookup() {
   final lookup = MockBenchmarkLookup();
@@ -104,6 +115,7 @@ void main() {
     int? candlingDay,
     AuditContextData? contextOverride,
     BenchmarkLookup? benchmarkLookup,
+    CustomersProvider? customersProvider,
   }) async {
     final provider = AuditProvider(
       autosaveEnabled: false,
@@ -116,6 +128,9 @@ void main() {
           ChangeNotifierProvider.value(value: provider),
           ChangeNotifierProvider(
             create: (_) => AuthProvider(supabaseService: MockSupabaseService()),
+          ),
+          ChangeNotifierProvider<CustomersProvider>(
+            create: (_) => customersProvider ?? CustomersProvider(),
           ),
         ],
         child: MaterialApp(
@@ -436,7 +451,7 @@ void main() {
     expect(find.text('Fertility'), findsOneWidget);
     expect(find.text('HOF'), findsOneWidget);
     expect(find.byType(SamplingScopeControls), findsOneWidget);
-    expect(find.textContaining('Active sample:'), findsOneWidget);
+    expect(find.text('Selected sample: SA2'), findsOneWidget);
     expect(find.byKey(const ValueKey('breakout-add-sample')), findsNothing);
     expect(
       find.byType(MultiPhotoButton),
@@ -893,14 +908,32 @@ void main() {
   testWidgets('main card shows flock breed storage and calculated bmk age', (
     tester,
   ) async {
+    final flock = FlockModel(
+      id: 'flock-1',
+      customerId: 'customer-1',
+      flockId: 'Sampling QA',
+      breed: 'Ross308',
+      entryDate: DateTime.utc(2026, 1, 1),
+    );
     await pumpScreen(
       tester,
       breakoutType: EggBreakoutType.freshEggBreakout,
       benchmarkLookup: mockBenchmarkLookup(),
+      customersProvider: _FlockLabelCustomersProvider(flock),
     );
 
     expect(find.text('FLOCK'), findsOneWidget);
-    expect(find.text('flock-1'), findsOneWidget);
+    final contextCard = find.byKey(
+      const ValueKey('hatch-analysis-context-card'),
+    );
+    expect(
+      find.descendant(of: contextCard, matching: find.text('Sampling QA')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: contextCard, matching: find.text('flock-1')),
+      findsNothing,
+    );
     expect(find.text('BREED'), findsOneWidget);
     expect(find.text('Ross 308'), findsOneWidget);
     expect(find.text('STORAGE DAYS'), findsOneWidget);

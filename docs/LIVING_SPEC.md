@@ -1122,13 +1122,14 @@ Quality cards, and station notes.
 
 Chicks uses a split workbench structure instead of tabs. The screen
 starts with a blue gradient Audit Station card showing Chick quality and the
-selected hatchery context. The workbench uses two columns on wide screens and
-collapses into one scrollable column on smaller screens. The Chicks screen does
-not render its own sticky save footer; visit sessions use the session-level
-Back / Next Station navigation, and standalone editor saves are handled outside
-this embedded workbench. When opened from a resumed visit session, Chicks
-restores all saved comparison sample rows and linked normalized samples before
-rendering the workbench.
+selected hatchery name from the customer reference lookup, falling back to its
+stored ID when the lookup is unavailable. The workbench uses two columns on
+wide screens and collapses into one scrollable column on smaller screens. The
+Chicks screen does not render its own sticky save footer; visit sessions use
+the session-level Back / Next Station navigation, and standalone editor saves
+are handled outside this embedded workbench. When opened from a resumed visit
+session, Chicks restores all saved comparison sample rows and linked normalized
+samples before rendering the workbench.
 
 The left workbench column starts directly with Chick Quality sampling controls
 without a separate panel header, then contains expandable Pasgar Score, YFBM,
@@ -1215,8 +1216,10 @@ Older percentage-only payloads remain readable. Derived dashboard fields store
 total affected percentage, top category, and top subtype.
 
 The right workbench column contains Chick Weights & Uniformity. Its embedded
-blue flock card shows flock, breed, and BMK age inside one compact translucent
-context strip and omits the previous `Uniform`/`Review` title pill; edit flows
+blue flock card resolves the flock display name from the customer reference
+lookup and shows it with breed and BMK age inside one compact translucent
+context strip, falling back to the stored flock ID when the lookup is
+unavailable. It omits the previous `Uniform`/`Review` title pill; edit flows
 fall back to the selected flock breed when a Chicks audit row does not carry a
 legacy breed field. Resumed visit sessions prefer the live Flock Manager row
 for Chicks breed and age, so correcting a flock from 30 to 37 weeks updates the
@@ -1257,10 +1260,11 @@ Fresh Egg, Candled Egg, and Residue / Hatch Day. The Breakout Type card keeps
 the selector beside the header title on wider layouts and stacks it vertically
 on mobile. The Breakout Type and metadata cards use the same minimum height but
 can grow when wrapped content needs more room, avoiding clipped or unbounded
-layouts. The metadata card shows auto-filled flock, breed, and read-only BMK
-age as three
+layouts. The metadata card shows the flock display name resolved through the
+customer reference lookup, along with breed and read-only BMK age, as three
 equal-width tiles in one row; long flock or breed values wrap inside their own
-tile instead of pushing the BMK Age tile to another row. Storage Days is an
+tile instead of pushing the BMK Age tile to another row. When the reference
+lookup is unavailable, the stored flock ID is shown. Storage Days is an
 entry field in a shorter light-grey entry card with no section heading, defaults
 to `0`, treats blank or older missing values as `0`, and clears its default zero
 on focus for faster replacement;

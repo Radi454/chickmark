@@ -13,6 +13,7 @@ import '../../../core/utils/calculation_utils.dart';
 import '../../../data/database/database_helper.dart';
 import '../../../data/models/audit_model.dart';
 import '../../../data/models/station_sample_model.dart';
+import '../../../providers/customers_provider.dart';
 import '../providers/audit_provider.dart';
 import '../widgets/audit_autosave_status.dart';
 import '../widgets/audit_keyboard_dismiss.dart';
@@ -689,7 +690,7 @@ class _HeaderCard extends StatelessWidget {
           _HeaderContextTile(
             label: 'Hatchery',
             value: contextData.hatcheryId?.isNotEmpty == true
-                ? contextData.hatcheryId!
+                ? _resolveHatcheryDisplayName(context, contextData.hatcheryId!)
                 : 'Main Hatchery',
           ),
         ],
@@ -979,7 +980,10 @@ class _FlockCard extends StatelessWidget {
             builder: (context, constraints) {
               final isWide = constraints.maxWidth >= 420;
               final tiles = [
-                _FlockInfo(label: 'Flock', value: contextData.flockId),
+                _FlockInfo(
+                  label: 'Flock',
+                  value: _resolveFlockDisplayName(context, contextData.flockId),
+                ),
                 _FlockInfo(
                   label: 'Breed',
                   value:
@@ -2079,5 +2083,23 @@ class _WeightStats {
       high: high,
       uniformity: uniformity,
     );
+  }
+}
+
+String _resolveFlockDisplayName(BuildContext context, String flockId) {
+  try {
+    return context.read<CustomersProvider>().flockById(flockId)?.flockId ??
+        flockId;
+  } on ProviderNotFoundException {
+    return flockId;
+  }
+}
+
+String _resolveHatcheryDisplayName(BuildContext context, String hatcheryId) {
+  try {
+    return context.read<CustomersProvider>().hatcheryById(hatcheryId)?.name ??
+        hatcheryId;
+  } on ProviderNotFoundException {
+    return hatcheryId;
   }
 }

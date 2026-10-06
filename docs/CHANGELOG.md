@@ -1,5 +1,10 @@
 # ChickMark Change Log
 
+- 2026-10-06: Resolved the Chicks Hatchery banner, Chick Weights Flock tile,
+  and Hatch Analysis FLOCK tile through customer reference data so they show
+  names while keeping UUIDs in audit context and persistence. Added widget
+  regressions for resolved flock and hatchery labels.
+
 - 2026-10-06: Scoped sampling retry backoff to each table and session/panel
   group so a failing visit cannot postpone retries for unrelated sampling
   groups. Added a regression covering an immediately retryable successful QA
