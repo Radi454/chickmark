@@ -2064,8 +2064,10 @@ SQLite version 83 includes `panel_sampling_states`, `panel_sampling_nodes`, and
 panel tables. Startup sync uploads sampling before measurements and pulls it
 before measurement rows. Sampling uploads isolate each session/panel in both
 the initial and reconciled passes; a rejected visit does not block another
-visit’s sampling rows. Failed groups retain their dirty state and block only
-their own measurement uploads. Server serial reconciliation uses a session/panel lock
+visit’s sampling rows. Sampling retry backoff is scoped to each table and
+session/panel group, so a failed group does not delay retries for another visit.
+Failed groups retain their dirty state and block only their own measurement
+uploads. Server serial reconciliation uses a session/panel lock
 and deterministic collision repair; failed or deferred reconciliation blocks
 measurement uploads. Reservations survive branch deletion and stale snapshots
 cannot lower the serial high-watermark or a reconciled reservation.

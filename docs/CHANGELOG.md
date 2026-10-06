@@ -1,5 +1,10 @@
 # ChickMark Change Log
 
+- 2026-10-06: Scoped sampling retry backoff to each table and session/panel
+  group so a failing visit cannot postpone retries for unrelated sampling
+  groups. Added a regression covering an immediately retryable successful QA
+  group alongside an unrelated group in backoff.
+
 - 2026-10-06: Kept ordinary photo metadata uploads compatible with legacy cloud
   schemas missing observation_id. Preserved association clearing on current
   schemas and rejected missing-column fallback for linked observations. Added

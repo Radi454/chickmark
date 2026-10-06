@@ -885,6 +885,72 @@ void main() {
     ]);
   });
 
+  test(
+    'sampling retry backoff stays scoped to the failed session and panel',
+    () async {
+      final dirtyNodes = [
+        {
+          'id': 'unrelated-node',
+          'sessionId': 'unrelated-session',
+          'panelKey': 'egg_storage',
+          'sampleId': 'unrelated-sample',
+          'sampleNumber': 1,
+          'isTerminal': 1,
+          'syncStatus': 'pending',
+        },
+        {
+          'id': 'qa-node',
+          'sessionId': 'qa-session',
+          'panelKey': 'egg_storage',
+          'sampleId': 'qa-sample',
+          'sampleNumber': 1,
+          'isTerminal': 1,
+          'syncStatus': 'pending',
+        },
+      ];
+      when(
+        () => sampling.getDirtyRows('panel_sampling_nodes'),
+      ).thenAnswer((_) async => dirtyNodes);
+
+      final attemptsBySession = <String, int>{};
+      when(() => supabase.upsertRowsStrict(any(), any())).thenAnswer((
+        invocation,
+      ) async {
+        if (invocation.positionalArguments.first != 'panel_sampling_nodes') {
+          return;
+        }
+        final rows = (invocation.positionalArguments[1] as List)
+            .cast<Map<String, dynamic>>();
+        final sessionId = rows.single['sessionId'] as String;
+        attemptsBySession.update(
+          sessionId,
+          (count) => count + 1,
+          ifAbsent: () => 1,
+        );
+        if (sessionId == 'unrelated-session') {
+          throw StateError('unrelated session violates RLS');
+        }
+      });
+
+      await service().run();
+      final qaAttemptsAfterFirstRun = attemptsBySession['qa-session'];
+      expect(qaAttemptsAfterFirstRun, 2);
+
+      await service().run();
+
+      expect(
+        attemptsBySession['unrelated-session'],
+        1,
+        reason: 'the failed group should remain in its backoff window',
+      );
+      expect(
+        attemptsBySession['qa-session'],
+        greaterThan(qaAttemptsAfterFirstRun!),
+        reason: 'the successful QA group should remain immediately retryable',
+      );
+    },
+  );
+
   test('isolates failures during reconciled sampling uploads', () async {
     when(() => sampling.getDirtyRows('panel_sampling_states')).thenAnswer(
       (_) async => [
@@ -1145,7 +1211,9 @@ void main() {
           panelKey: 'egg_storage',
         ),
       ).thenAnswer((_) async {
-        retryPolicy.recordFailure('panel_sampling_nodes');
+        retryPolicy.recordFailure(
+          'sampling:panel_sampling_nodes:session-1\u0000egg_storage',
+        );
         return const [
           {'sample_id': 'sample-1', 'sample_number': 2},
         ];

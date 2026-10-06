@@ -673,10 +673,10 @@ class StartupSyncService {
     final byTable = <String, List<Map<String, dynamic>>>{};
     final panelKeys = <String>{};
     final failedPanelKeys = <String>{};
-    final retryAllowedByTable = <String, bool>{};
-    final failedTables = <String>{};
-    final skippedTables = <String>{};
-    final attemptedTables = <String>{};
+    final retryAllowedByGroup = <String, bool>{};
+    final attemptedRetryGroups = <String>{};
+    final failedRetryGroups = <String>{};
+    final skippedRetryGroups = <String>{};
 
     // First make the rows visible to the RPC. Success is deliberately not
     // acknowledged locally yet: the RPC may renumber nodes and update their
@@ -688,17 +688,18 @@ class StartupSyncService {
       byTable[table] = dirty;
       if (dirty.isEmpty) continue;
       final groups = _groupSamplingRows(dirty);
-      final canAttempt = _retryPolicy.shouldAttempt(table);
-      retryAllowedByTable[table] = canAttempt;
-      if (!canAttempt) {
-        skippedTables.add(table);
-        _recordFailedRows(table, dirty.length);
-        failedPanelKeys.addAll(groups.keys);
-        panelKeys.addAll(groups.keys.where(_isValidSamplingPanelKey));
-        continue;
-      }
-      attemptedTables.add(table);
       for (final entry in groups.entries) {
+        final retryKey = _samplingRetryKey(table, entry.key);
+        final canAttempt = _retryPolicy.shouldAttempt(retryKey);
+        retryAllowedByGroup[retryKey] = canAttempt;
+        if (!canAttempt) {
+          skippedRetryGroups.add(retryKey);
+          failedPanelKeys.add(entry.key);
+          if (_isValidSamplingPanelKey(entry.key)) panelKeys.add(entry.key);
+          _recordFailedRows(table, entry.value.length);
+          continue;
+        }
+        attemptedRetryGroups.add(retryKey);
         if (_isValidSamplingPanelKey(entry.key)) panelKeys.add(entry.key);
         final rows = entry.value;
         try {
@@ -712,7 +713,7 @@ class StartupSyncService {
             _samplingRowIds(rows),
             error,
           );
-          failedTables.add(table);
+          failedRetryGroups.add(retryKey);
           failedPanelKeys.add(entry.key);
           _recordFailedRows(table, rows.length);
         }
@@ -764,16 +765,23 @@ class StartupSyncService {
         }
       } catch (error) {
         for (final table in _samplingSyncTables) {
-          final ids = (byTable[table] ?? const [])
+          final rows = (byTable[table] ?? const [])
               .where(
                 (row) =>
                     row['sessionId']?.toString() == sessionId &&
                     row['panelKey']?.toString() == panelKey,
               )
-              .map((row) => row['id']?.toString())
-              .whereType<String>()
               .toList(growable: false);
-          await _panelSamplingStateRepository.markRowsFailed(table, ids, error);
+          await _panelSamplingStateRepository.markRowsFailed(
+            table,
+            _samplingRowIds(rows),
+            error,
+          );
+          if (rows.isNotEmpty) {
+            failedRetryGroups.add(
+              _samplingRetryKey(table, '$sessionId\u0000$panelKey'),
+            );
+          }
         }
         _recordFailedRows('panel_sampling_serial_reconciliation', 1);
         failedPanelKeys.add(key);
@@ -799,15 +807,19 @@ class StartupSyncService {
           .toList(growable: false);
       if (eligible.isEmpty) continue;
       final groups = _groupSamplingRows(eligible);
-      if (retryAllowedByTable[table] == false ||
-          !_retryPolicy.shouldAttempt(table)) {
-        skippedTables.add(table);
-        failedPanelKeys.addAll(groups.keys);
-        _failedSamplingPanelKeys.addAll(groups.keys);
-        _recordFailedRows(table, eligible.length);
-        continue;
-      }
       for (final entry in groups.entries) {
+        final retryKey = _samplingRetryKey(table, entry.key);
+        final canAttempt =
+            retryAllowedByGroup[retryKey] != false &&
+            _retryPolicy.shouldAttempt(retryKey);
+        if (!canAttempt) {
+          skippedRetryGroups.add(retryKey);
+          failedPanelKeys.add(entry.key);
+          _failedSamplingPanelKeys.add(entry.key);
+          _recordFailedRows(table, entry.value.length);
+          continue;
+        }
+        attemptedRetryGroups.add(retryKey);
         final rows = entry.value;
         final ids = _samplingRowIds(rows);
         try {
@@ -819,7 +831,7 @@ class StartupSyncService {
           pushed += rows.length;
         } catch (error) {
           await _panelSamplingStateRepository.markRowsFailed(table, ids, error);
-          failedTables.add(table);
+          failedRetryGroups.add(retryKey);
           failedPanelKeys.add(entry.key);
           _failedSamplingPanelKeys.add(entry.key);
           _recordFailedRows(table, rows.length);
@@ -827,15 +839,18 @@ class StartupSyncService {
       }
     }
 
-    for (final table in attemptedTables) {
-      if (failedTables.contains(table)) {
-        _retryPolicy.recordFailure(table);
-      } else if (!skippedTables.contains(table)) {
-        _retryPolicy.recordSuccess(table);
+    for (final retryKey in attemptedRetryGroups) {
+      if (failedRetryGroups.contains(retryKey)) {
+        _retryPolicy.recordFailure(retryKey);
+      } else if (!skippedRetryGroups.contains(retryKey)) {
+        _retryPolicy.recordSuccess(retryKey);
       }
     }
     return pushed;
   }
+
+  String _samplingRetryKey(String table, String groupKey) =>
+      'sampling:$table:$groupKey';
 
   Map<String, List<Map<String, dynamic>>> _groupSamplingRows(
     List<Map<String, dynamic>> rows,
