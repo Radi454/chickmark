@@ -1041,13 +1041,14 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
     final activeDraft = auditProvider.activeDraft;
     final bmkAge =
         activeDraft.esEggBmkAge ?? _calculateEggQualityBmkAge(storageDays);
+    final flockLabel = _flockDisplayLabel();
 
     return AuditStationHero(
       heroKey: _sectionKeys[3],
       title: 'Egg quality',
       equalDetailWidths: true,
       details: [
-        AuditHeroDetail(label: 'Flock', value: widget.context.flockId),
+        AuditHeroDetail(label: 'Flock', value: flockLabel),
         AuditHeroDetail(label: 'Breed', value: widget.context.breed ?? '--'),
         AuditHeroDetail(
           label: 'BMK Age',
@@ -1055,6 +1056,18 @@ class _EggStorageScreenState extends State<EggStorageScreen> {
         ),
       ],
     );
+  }
+
+  String _flockDisplayLabel() {
+    try {
+      return context
+              .read<CustomersProvider>()
+              .flockById(widget.context.flockId)
+              ?.flockId ??
+          widget.context.flockId;
+    } on ProviderNotFoundException {
+      return widget.context.flockId;
+    }
   }
 
   Widget _buildEggQualityStorageDaysField(AuditProvider auditProvider) {

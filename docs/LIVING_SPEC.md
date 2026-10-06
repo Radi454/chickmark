@@ -674,10 +674,10 @@ Station save behavior:
   comparison. There is no direct conversion of an existing branch to Pooled.
   Deleting the final comparison tab restores an empty Pooled default.
 - Add dialogs validate identities before changing state. Registered Houses are
-  selected from the current flock; when a flock has no registered houses, the
-  picker explains that houses must be added in Flock Management. Machine
-  identities use manual entry because no dedicated machine registry is
-  present. Duplicate identities under the same parent are rejected with a
+  selected from the current flock, with inline registration and editing.
+  Machine identities come from the hatchery's registered fixed IDs, and
+  numbered trolley/tray choices use the stored registered counts. Used sibling
+  choices are excluded; duplicate identities under the same parent are rejected with a
   duplicate-specific message. Cancel leaves the form and persisted state
   intact. Scope headings and selected sampling chips use readable surface and
   on-primary text and action colors, and each scope has a visible Add action.
@@ -2038,6 +2038,10 @@ percentages, hatchability, fertility, HOF, EST averages, and CVT averages, are
 stored on the corresponding panel row for dashboard queries and sync.
 
 ## 6. Models and Provider State
+
+The Egg quality context header resolves the flock's display name through the
+customer reference cache, falling back to its ID when unavailable. Audit
+context and persistence retain the stable flock ID.
 
 Shared sampling models and `PanelSamplingStateRepository` own per-session,
 per-panel trees, native/Tray leaves, immutable IDs, reserved serials, and paths.

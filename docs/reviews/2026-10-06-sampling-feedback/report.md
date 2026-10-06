@@ -3,6 +3,26 @@
 Task: sampling-feedback-20261006. Human acceptance and final live verification
 remain pending.
 
+## Deployed browser checks
+
+On `a17eac4`, authenticated QA testing passed inline House registration and
+code editing, adding its comparison branch, and retaining it after reopening.
+The Add House picker excluded the used house and exposed registration directly.
+The Trolley picker offered only 1 and 4 when 2 and 3 were in use; adding 4
+created and selected Tray 1 / SA8. Machine capacity editing displayed only its
+fixed ID and three capacity fields, with calculated counts of four trolleys
+and 32 trays. Screenshots 02 and 03 record those controls.
+
+Entering 100.4°F on SA8, leaving via Back, reopening the visit, and selecting
+Trolley 4 restored 100.4°F. The old station-save failure did not recur. The
+sampling card was visually checked at 1280px and the user's 776px width, with
+readable chips and compact serial context. An additional display-only defect
+was found: the Egg quality header rendered the flock UUID directly. Its
+lookup now matches Home's flock display name without changing persisted IDs.
+The Egg screen and Supabase payload/security suites passed all 26 tests in the
+final independent combined run. Analysis retained only the two existing
+warnings; the final release web build succeeded.
+
 ## User feedback and changes
 
 - Comments 1–2: SA numbers identify the sample owning the readings. The card

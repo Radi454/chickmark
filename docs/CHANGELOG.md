@@ -1,5 +1,10 @@
 # ChickMark Change Log
 
+- 2026-10-06: Resolved the Egg quality flock header through the customer
+  reference lookup, matching Home's flock name while retaining the stable UUID
+  in audit context and persistence. Aligned Egg screen regressions with the
+  compact sample serial and used-house exclusion behavior.
+
 - 2026-10-06: Excluded unsupported legacy update timestamps from hatchery
   cloud payloads in both mapped and compatibility upserts, preventing old local
   schema fields from rejecting otherwise valid hatchery uploads. Added a

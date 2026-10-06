@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/core/constants/app_colors.dart';
 import 'package:hatchaudit/data/models/audit_model.dart';
+import 'package:hatchaudit/data/models/flock_model.dart';
 import 'package:hatchaudit/data/models/panel_sampling_state.dart';
 import 'package:hatchaudit/data/models/poultry_hierarchy_models.dart';
 import 'package:hatchaudit/data/models/sampling_scope.dart';
@@ -22,6 +23,15 @@ import 'package:mocktail/mocktail.dart';
 import 'package:provider/provider.dart';
 
 class MockSupabaseService extends Mock implements SupabaseService {}
+
+class _FlockLabelCustomersProvider extends CustomersProvider {
+  _FlockLabelCustomersProvider(this.flock);
+
+  final FlockModel flock;
+
+  @override
+  FlockModel? flockById(String? id) => id == flock.id ? flock : null;
+}
 
 class _RegisteredHouseRepository extends PoultryHierarchyRepository {
   @override
@@ -288,6 +298,7 @@ void main() {
     AuditContextData? auditContext,
     AuditModel? initialAudit,
     EggBmkWeightLookup? bmkEggWeightLookup,
+    CustomersProvider? customersProvider,
   }) async {
     final samplingRepository = _ScreenSamplingRepository();
     await tester.pumpWidget(
@@ -302,7 +313,9 @@ void main() {
           ChangeNotifierProvider(
             create: (_) => AuthProvider(supabaseService: MockSupabaseService()),
           ),
-          ChangeNotifierProvider(create: (_) => CustomersProvider()),
+          ChangeNotifierProvider<CustomersProvider>.value(
+            value: customersProvider ?? CustomersProvider(),
+          ),
         ],
         child: MaterialApp(
           theme: ThemeData(splashFactory: NoSplash.splashFactory),
@@ -866,6 +879,24 @@ void main() {
     debugDefaultTargetPlatformOverride = null;
   });
 
+  testWidgets('egg quality hero shows the resolved flock name', (tester) async {
+    final flock = FlockModel(
+      id: 'flock-1',
+      customerId: 'customer-1',
+      flockId: 'Sampling QA 2026-10-05',
+      breed: 'Ross308',
+      entryDate: DateTime.utc(2026, 1, 1),
+    );
+
+    await pumpScreen(
+      tester,
+      customersProvider: _FlockLabelCustomersProvider(flock),
+    );
+
+    expect(find.text('Sampling QA 2026-10-05'), findsOneWidget);
+    expect(find.text('flock-1'), findsNothing);
+  });
+
   testWidgets('egg quality uses registered House identities for samples', (
     tester,
   ) async {
@@ -883,14 +914,14 @@ void main() {
     expect(house.identity['code'], 'N01');
     expect(house.identity['name'], 'North House');
     expect(find.text('North House'), findsOneWidget);
-    expect(find.textContaining('HN01'), findsOneWidget);
+    expect(find.text('Selected sample: SA2'), findsOneWidget);
     expect(repository._states.values.single.samples, hasLength(1));
 
     expect(provider.samplingStateFor('egg_quality')?.samples, hasLength(1));
     provider.dispose();
   });
 
-  testWidgets('registered House picker cancellation and duplicate are safe', (
+  testWidgets('registered House picker cancellation and exhaustion are safe', (
     tester,
   ) async {
     final (provider, repository) = await pumpSamplingControls(
@@ -907,31 +938,25 @@ void main() {
     expect(repository._states.values.single.samples, hasLength(1));
 
     await chooseRegisteredNorthHouse(tester);
+    final stateBeforeExhaustedPicker = repository._states.values.single;
     await tester.tap(find.byTooltip('Add House'));
     for (var i = 0; i < 8; i++) {
       await tester.pump(const Duration(milliseconds: 50));
     }
-    await tester.tap(
-      find.byWidgetPredicate((widget) => widget is DropdownButtonFormField),
-    );
-    await tester.pump();
-    await tester.tap(find.text('North House').last);
-    await tester.pump();
-    await tester.tap(find.text('Save').last);
-    for (var i = 0; i < 8; i++) {
-      await tester.pump(const Duration(milliseconds: 50));
-    }
-
     expect(
-      find.text('That identity already exists under this parent.'),
+      find.text('All registered houses are already used in this branch.'),
       findsOneWidget,
     );
     expect(
-      repository._states.values.single.nodes.where(
-        (node) => node.level == SamplingScopeLevel.house,
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.byType(DropdownButtonFormField),
       ),
-      hasLength(1),
+      findsNothing,
     );
+    await tester.tap(find.text('Cancel').last);
+    await tester.pump();
+    expect(repository._states.values.single, same(stateBeforeExhaustedPicker));
     provider.dispose();
   });
 
