@@ -104,3 +104,12 @@ yet been established by these checks.
 Changed product files: sampling scope controls, machine editor, audit provider,
 and Arabic localization; corresponding widget/SQLite regressions, living spec,
 changelog, and this review/evidence directory.
+
+## Deployment cache follow-up
+
+The browser still sent the legacy hatchery timestamp after deployment of its
+payload fix. Server logs confirmed stale client code. Pages builds now
+fingerprint bootstrap and compiled app filenames without clearing application
+storage. The Python fixture and build wrapper regressions pass; a temporary
+copy of actual release output also passes with its unregister-only service
+worker unchanged. Live verification follows deployment.

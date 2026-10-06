@@ -200,6 +200,10 @@ The production web app is deployed from `main` to GitHub Pages at
 with `/chickmark/` as its base path and supplies only the Supabase URL and
 public anonymous key from repository secrets. The deployment does not compile
 the local OpenRouter key or the development auth bypass into the browser app.
+The Pages build gives the compiled app and bootstrap content-hashed filenames
+and points the entry HTML at them, so a previous deployment’s cached JavaScript
+cannot replace the current app. Legacy filenames remain available; the SQLite
+worker and browser application data are preserved.
 Local macOS development uses `make run-macos` for a debug desktop run and
 `make build-macos` for a packaged desktop build; both use the same ignored
 `.env` Supabase credentials as the mobile run/build shortcuts. Direct

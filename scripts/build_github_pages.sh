@@ -12,3 +12,5 @@ flutter build web \
   --base-href=/chickmark/ \
   --dart-define="SUPABASE_URL=${SUPABASE_URL}" \
   --dart-define="SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}"
+
+python3 scripts/fingerprint_pages_assets.py build/web

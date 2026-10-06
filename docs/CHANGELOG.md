@@ -1,5 +1,10 @@
 # ChickMark Change Log
 
+- 2026-10-06: Fingerprinted Pages bootstrap and compiled app filenames after
+  the release build to avoid stale JavaScript after deployments. Kept legacy
+  assets available and preserved the SQLite worker and browser data. Added
+  deployment wrapper and service-worker manifest regressions.
+
 - 2026-10-06: Resolved the Egg quality flock header through the customer
   reference lookup, matching Home's flock name while retaining the stable UUID
   in audit context and persistence. Aligned Egg screen regressions with the
