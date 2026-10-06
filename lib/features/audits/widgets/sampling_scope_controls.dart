@@ -126,28 +126,18 @@ class _SamplingScopeControlsState extends State<SamplingScopeControls> {
                   context.tr('Sampling'),
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
-                for (final level in config.levels)
-                  if (!(config.pairedLevels?.last == level))
-                    _levelControls(
-                      context,
-                      provider,
-                      state,
-                      config,
-                      level,
-                      childrenByLevel[level] ?? const [],
-                      selectedByLevel[level],
-                      selectedByLevel,
-                      activeId,
-                    ),
-                if (config.terminalLevel == SamplingScopeLevel.sample)
-                  _terminalSamples(
-                    context,
-                    provider,
-                    state,
-                    config,
-                    selectedByLevel,
-                    activeId,
-                  ),
+                _nestedScopes(
+                  context,
+                  provider,
+                  state,
+                  config,
+                  config.levels
+                      .where((level) => config.pairedLevels?.last != level)
+                      .toList(),
+                  childrenByLevel,
+                  selectedByLevel,
+                  activeId,
+                ),
                 if (activeSample != null)
                   _activeSampleCode(context, provider, state, activeSample),
               ],
@@ -160,6 +150,131 @@ class _SamplingScopeControlsState extends State<SamplingScopeControls> {
       },
     );
   }
+
+  Widget _nestedScopes(
+    BuildContext context,
+    AuditProvider provider,
+    PanelSamplingState state,
+    PanelSamplingConfig config,
+    List<SamplingScopeLevel> levels,
+    Map<SamplingScopeLevel, List<SamplingNode>> childrenByLevel,
+    Map<SamplingScopeLevel, SamplingNode> selectedByLevel,
+    String? activeId,
+  ) {
+    if (levels.isEmpty) {
+      return config.terminalLevel == SamplingScopeLevel.sample
+          ? _terminalSamples(
+              context,
+              provider,
+              state,
+              config,
+              selectedByLevel,
+              activeId,
+            )
+          : const SizedBox.shrink();
+    }
+    final level = levels.first;
+    final colors = Theme.of(context).colorScheme;
+    final descendantScopes = _nestedScopes(
+      context,
+      provider,
+      state,
+      config,
+      levels.skip(1).toList(),
+      childrenByLevel,
+      selectedByLevel,
+      activeId,
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _levelControls(
+          context,
+          provider,
+          state,
+          config,
+          level,
+          childrenByLevel[level] ?? const [],
+          selectedByLevel[level],
+          selectedByLevel,
+          activeId,
+        ),
+        // Directional borders also express the branch nesting in Arabic.
+        Container(
+          margin: const EdgeInsetsDirectional.only(start: 4),
+          padding: const EdgeInsetsDirectional.only(start: 8),
+          decoration: BoxDecoration(
+            border: BorderDirectional(
+              start: BorderSide(
+                color: colors.primary.withValues(alpha: 0.3),
+                width: 2,
+              ),
+            ),
+          ),
+          child: descendantScopes,
+        ),
+      ],
+    );
+  }
+
+  Widget _scopeTab(
+    BuildContext context, {
+    required bool selected,
+    required Widget child,
+  }) {
+    final colors = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final labelStyle = (theme.chipTheme.labelStyle ??
+            theme.textTheme.labelLarge ??
+            const TextStyle())
+        .copyWith(
+      fontWeight: selected ? FontWeight.w700 : FontWeight.w400,
+    );
+    return Container(
+      padding: const EdgeInsets.only(bottom: 4),
+      decoration: BoxDecoration(
+        border: Border(
+          bottom: BorderSide(
+            color: selected ? colors.primary : Colors.transparent,
+            width: 3,
+          ),
+        ),
+      ),
+      child: Theme(
+        data: theme.copyWith(
+          chipTheme: theme.chipTheme.copyWith(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(6),
+            ),
+            side: BorderSide(
+              color: selected ? colors.primary : colors.outlineVariant,
+            ),
+            selectedColor: colors.primary,
+            secondarySelectedColor: colors.primary,
+            disabledColor: selected
+                ? colors.primary
+                : colors.surfaceContainerHighest,
+            backgroundColor: colors.surfaceContainerHighest,
+            labelStyle: labelStyle,
+            secondaryLabelStyle: labelStyle,
+          ),
+        ),
+        child: child,
+      ),
+    );
+  }
+
+  Widget _tabRow(List<Widget> tabs) => SingleChildScrollView(
+    scrollDirection: Axis.horizontal,
+    child: Row(
+      children: [
+        for (var index = 0; index < tabs.length; index++) ...[
+          if (index > 0) const SizedBox(width: 8),
+          tabs[index],
+        ],
+      ],
+    ),
+  );
 
   Widget _levelControls(
     BuildContext context,
@@ -221,12 +336,12 @@ class _SamplingScopeControlsState extends State<SamplingScopeControls> {
               ),
             ],
           ),
-          Wrap(
-            spacing: 8,
-            runSpacing: 4,
-            children: [
-              if (level != SamplingScopeLevel.tray)
-                ChoiceChip(
+          _tabRow([
+            if (level != SamplingScopeLevel.tray)
+              _scopeTab(
+                context,
+                selected: displayNodes.isEmpty,
+                child: ChoiceChip(
                   label: Text(
                     context.tr('Pooled'),
                     style: TextStyle(
@@ -242,8 +357,12 @@ class _SamplingScopeControlsState extends State<SamplingScopeControls> {
                   // measurements already attached to that branch.
                   onSelected: null,
                 ),
-              for (final node in displayNodes)
-                InputChip(
+              ),
+            for (final node in displayNodes)
+              _scopeTab(
+                context,
+                selected: node.id == selected?.id,
+                child: InputChip(
                   label: Text(
                     _identityLabel(node, isPaired),
                     style: TextStyle(
@@ -281,8 +400,8 @@ class _SamplingScopeControlsState extends State<SamplingScopeControls> {
                               _edit(context, provider, node, config),
                         ),
                 ),
-            ],
-          ),
+              ),
+          ]),
         ],
       ),
     );
@@ -317,11 +436,12 @@ class _SamplingScopeControlsState extends State<SamplingScopeControls> {
               color: Theme.of(context).colorScheme.onSurface,
             ),
           ),
-          Wrap(
-            spacing: 8,
-            children: [
-              for (final sample in samples)
-                ChoiceChip(
+          _tabRow([
+            for (final sample in samples)
+              _scopeTab(
+                context,
+                selected: sample.sampleId == activeId,
+                child: ChoiceChip(
                   label: Text(
                     'SA${sample.sampleNumber ?? ''}',
                     style: TextStyle(
@@ -341,8 +461,8 @@ class _SamplingScopeControlsState extends State<SamplingScopeControls> {
                           sample.sampleId!,
                         ),
                 ),
-            ],
-          ),
+              ),
+          ]),
         ],
       ),
     );

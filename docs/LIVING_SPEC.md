@@ -684,7 +684,10 @@ Station save behavior:
   choices are excluded; duplicate identities under the same parent are rejected with a
   duplicate-specific message. Cancel leaves the form and persisted state
   intact. Scope headings and selected sampling chips use readable surface and
-  on-primary text and action colors, and each scope has a visible Add action.
+  on-primary text and action colors. Scope choices render as horizontally
+  scrollable tab rows, with the selected tab filled, bold, and underlined;
+  descendant scope rows are directionally indented under their parent. Each
+  scope has a visible Add action.
   New branches receive a default identified terminal Tray (or native sample)
   and become the active path. Selecting a legacy branch with no terminal leaf
   creates its default terminal sample. Setter is labeled independently except

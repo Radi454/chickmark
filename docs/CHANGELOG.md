@@ -1,5 +1,10 @@
 # ChickMark Change Log
 
+- 2026-10-06: Rendered shared sampling choices as nested, horizontally
+  scrollable tab rows with a filled, bold, underlined active tab. Preserved
+  existing branch selection and paired-level behavior while retaining chip
+  typography from the app theme.
+
 - 2026-10-06: Isolated sampling uploads by visit and panel in both upload
   passes, preventing a rejected parent reference from blocking valid visits.
   Preserved serial reconciliation, dirty cutoffs, retry backoff, and cloud
