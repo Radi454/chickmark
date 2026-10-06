@@ -1,5 +1,10 @@
 # ChickMark Change Log
 
+- 2026-10-06: Isolated sampling uploads by visit and panel in both upload
+  passes, preventing a rejected parent reference from blocking valid visits.
+  Preserved serial reconciliation, dirty cutoffs, retry backoff, and cloud
+  permissions; failed groups keep their measurements pending.
+
 - 2026-10-06: Fingerprinted Pages bootstrap and compiled app filenames after
   the release build to avoid stale JavaScript after deployments. Kept legacy
   assets available and preserved the SQLite worker and browser data. Added

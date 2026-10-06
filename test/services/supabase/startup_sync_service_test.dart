@@ -760,6 +760,186 @@ void main() {
     },
   );
 
+  test('isolates sampling upload failures by session and panel', () async {
+    final dirtyStates = [
+      {
+        'id': 'orphan:egg_storage',
+        'sessionId': 'orphan-session',
+        'panelKey': 'egg_storage',
+        'serialHighWatermark': 1,
+        'syncStatus': 'pending',
+        'dirtyAt': '2026-09-01T00:00:00Z',
+      },
+      {
+        'id': 'valid:egg_storage',
+        'sessionId': 'valid-session',
+        'panelKey': 'egg_storage',
+        'serialHighWatermark': 1,
+        'syncStatus': 'pending',
+        'dirtyAt': '2026-09-01T00:00:00Z',
+      },
+    ];
+    final dirtyNodes = [
+      {
+        'id': 'orphan-node',
+        'sessionId': 'orphan-session',
+        'panelKey': 'egg_storage',
+        'sampleId': 'orphan-sample',
+        'sampleNumber': 1,
+        'isTerminal': 1,
+        'syncStatus': 'pending',
+        'dirtyAt': '2026-09-01T00:00:00Z',
+      },
+      {
+        'id': 'valid-node',
+        'sessionId': 'valid-session',
+        'panelKey': 'egg_storage',
+        'sampleId': 'valid-sample',
+        'sampleNumber': 1,
+        'isTerminal': 1,
+        'syncStatus': 'pending',
+        'dirtyAt': '2026-09-01T00:00:00Z',
+      },
+    ];
+    when(
+      () => sampling.getDirtyRows('panel_sampling_states'),
+    ).thenAnswer((_) async => dirtyStates);
+    when(
+      () => sampling.getDirtyRows('panel_sampling_nodes'),
+    ).thenAnswer((_) async => dirtyNodes);
+    when(
+      () => sampling.getDirtyRows('panel_sample_serial_reservations'),
+    ).thenAnswer((_) async => const []);
+    when(() => panels.getDirtyRows('egg_storage')).thenAnswer(
+      (_) async => [
+        {
+          'id': 'orphan-measurement',
+          'sessionId': 'orphan-session',
+          'customerId': 'customer-1',
+          'date': '2026-05-01',
+          'syncStatus': 'pending',
+        },
+        {
+          'id': 'valid-measurement',
+          'sessionId': 'valid-session',
+          'customerId': 'customer-1',
+          'date': '2026-05-01',
+          'syncStatus': 'pending',
+        },
+      ],
+    );
+    final attempts = <String, List<List<Map<String, dynamic>>>>{};
+    when(() => supabase.upsertRowsStrict(any(), any())).thenAnswer((
+      invocation,
+    ) async {
+      final table = invocation.positionalArguments[0] as String;
+      final rows = (invocation.positionalArguments[1] as List)
+          .cast<Map<String, dynamic>>();
+      attempts.putIfAbsent(table, () => []).add(rows);
+      if (rows.any((row) => row['sessionId'] == 'orphan-session')) {
+        throw StateError('orphan session violates RLS');
+      }
+    });
+
+    final outcome = await service().run();
+
+    expect(outcome.hasFailures, isTrue);
+    expect(attempts['panel_sampling_states'], hasLength(3));
+    expect(attempts['panel_sampling_nodes'], hasLength(3));
+    for (final table in ['panel_sampling_states', 'panel_sampling_nodes']) {
+      expect(
+        attempts[table]!.every((group) => group.length == 1),
+        isTrue,
+        reason: 'Each $table upload must contain only one session/panel.',
+      );
+      expect(
+        attempts[table]!.any(
+          (group) => group.single['sessionId'] == 'valid-session',
+        ),
+        isTrue,
+        reason: 'A failed orphan group must not block valid-session rows.',
+      );
+    }
+    verify(
+      () => sampling.markRowsSynced('panel_sampling_states', [
+        'valid:egg_storage',
+      ]),
+    ).called(1);
+    verify(
+      () => sampling.markRowsSynced('panel_sampling_nodes', ['valid-node']),
+    ).called(1);
+    verifyNever(
+      () => sampling.markRowsSynced('panel_sampling_states', [
+        'orphan:egg_storage',
+      ]),
+    );
+    expect(attempts['egg_storage'], [
+      [
+        {
+          'id': 'valid-measurement',
+          'sessionId': 'valid-session',
+          'customerId': 'customer-1',
+          'date': '2026-05-01',
+        },
+      ],
+    ]);
+  });
+
+  test('isolates failures during reconciled sampling uploads', () async {
+    when(() => sampling.getDirtyRows('panel_sampling_states')).thenAnswer(
+      (_) async => [
+        {
+          'id': 'session-a:egg_storage',
+          'sessionId': 'session-a',
+          'panelKey': 'egg_storage',
+          'serialHighWatermark': 1,
+          'syncStatus': 'pending',
+        },
+        {
+          'id': 'session-b:egg_storage',
+          'sessionId': 'session-b',
+          'panelKey': 'egg_storage',
+          'serialHighWatermark': 1,
+          'syncStatus': 'pending',
+        },
+      ],
+    );
+    when(
+      () => sampling.getDirtyRows('panel_sampling_nodes'),
+    ).thenAnswer((_) async => const []);
+    when(
+      () => sampling.getDirtyRows('panel_sample_serial_reservations'),
+    ).thenAnswer((_) async => const []);
+    var sessionBPushes = 0;
+    final attempts = <List<Map<String, dynamic>>>[];
+    when(
+      () => supabase.upsertRowsStrict('panel_sampling_states', any()),
+    ).thenAnswer((invocation) async {
+      final rows = (invocation.positionalArguments[1] as List)
+          .cast<Map<String, dynamic>>();
+      attempts.add(rows);
+      if (rows.single['sessionId'] == 'session-b' && ++sessionBPushes == 2) {
+        throw StateError('session-b rejected after reconciliation');
+      }
+    });
+
+    final outcome = await service().run();
+
+    expect(outcome.hasFailures, isTrue);
+    expect(attempts, hasLength(4));
+    expect(attempts.every((group) => group.length == 1), isTrue);
+    verify(
+      () => sampling.markRowsSynced('panel_sampling_states', [
+        'session-a:egg_storage',
+      ]),
+    ).called(1);
+    verifyNever(
+      () => sampling.markRowsSynced('panel_sampling_states', [
+        'session-b:egg_storage',
+      ]),
+    );
+  });
+
   test(
     'pull-only sync never writes sampling rows or calls serial RPC',
     () async {
@@ -1960,9 +2140,7 @@ void main() {
     verify(() => tombstones.markSynced(qaTarget.id)).called(1);
     verify(() => supabase.deleteRows('hatcheries', ['qa-hatchery'])).called(1);
     verifyNever(() => supabase.deleteRows('customers', ['missing-customer']));
-    verifyNever(
-      () => supabase.deleteRows('hatcheries', ['missing-customer']),
-    );
+    verifyNever(() => supabase.deleteRows('hatcheries', ['missing-customer']));
     verifyNever(
       () => supabase.deleteRows('hatcheries', ['missing-customer', 'qa-hatchery']),
     );

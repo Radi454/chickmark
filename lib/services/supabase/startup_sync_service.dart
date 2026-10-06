@@ -673,53 +673,48 @@ class StartupSyncService {
     final byTable = <String, List<Map<String, dynamic>>>{};
     final panelKeys = <String>{};
     final failedPanelKeys = <String>{};
+    final retryAllowedByTable = <String, bool>{};
+    final failedTables = <String>{};
+    final skippedTables = <String>{};
+    final attemptedTables = <String>{};
 
     // First make the rows visible to the RPC. Success is deliberately not
     // acknowledged locally yet: the RPC may renumber nodes and update their
     // measurement rows, and those reconciled values must reach Supabase first.
+    // Keep each session/panel independent so a stale local-only session cannot
+    // reject valid rows in the same table through its row-level security check.
     for (final table in _samplingSyncTables) {
       final dirty = await _panelSamplingStateRepository.getDirtyRows(table);
       byTable[table] = dirty;
-      for (final row in dirty) {
-        final sessionId = row['sessionId']?.toString();
-        final panelKey = row['panelKey']?.toString();
-        if (sessionId != null &&
-            sessionId.isNotEmpty &&
-            panelKey != null &&
-            panelKey.isNotEmpty) {
-          panelKeys.add('$sessionId\u0000$panelKey');
-        }
-      }
       if (dirty.isEmpty) continue;
-      final ids = _samplingRowIds(dirty);
-      try {
-        if (!_retryPolicy.shouldAttempt(table)) {
-          _recordFailedRows(table, dirty.length);
-          for (final row in dirty) {
-            final sessionId = row['sessionId']?.toString();
-            final panelKey = row['panelKey']?.toString();
-            if (sessionId != null && panelKey != null) {
-              failedPanelKeys.add('$sessionId\u0000$panelKey');
-            }
-          }
-          continue;
-        }
-        await _supabaseService.upsertRowsStrict(
-          table,
-          dirty.map(stripSyncMeta).toList(growable: false),
-        );
-        _retryPolicy.recordSuccess(table);
-      } catch (error) {
-        await _panelSamplingStateRepository.markRowsFailed(table, ids, error);
-        _retryPolicy.recordFailure(table);
+      final groups = _groupSamplingRows(dirty);
+      final canAttempt = _retryPolicy.shouldAttempt(table);
+      retryAllowedByTable[table] = canAttempt;
+      if (!canAttempt) {
+        skippedTables.add(table);
         _recordFailedRows(table, dirty.length);
-        // A failed first upload means this table cannot be safely reconciled.
-        for (final row in dirty) {
-          final sessionId = row['sessionId']?.toString();
-          final panelKey = row['panelKey']?.toString();
-          if (sessionId != null && panelKey != null) {
-            failedPanelKeys.add('$sessionId\u0000$panelKey');
-          }
+        failedPanelKeys.addAll(groups.keys);
+        panelKeys.addAll(groups.keys.where(_isValidSamplingPanelKey));
+        continue;
+      }
+      attemptedTables.add(table);
+      for (final entry in groups.entries) {
+        if (_isValidSamplingPanelKey(entry.key)) panelKeys.add(entry.key);
+        final rows = entry.value;
+        try {
+          await _supabaseService.upsertRowsStrict(
+            table,
+            rows.map(stripSyncMeta).toList(growable: false),
+          );
+        } catch (error) {
+          await _panelSamplingStateRepository.markRowsFailed(
+            table,
+            _samplingRowIds(rows),
+            error,
+          );
+          failedTables.add(table);
+          failedPanelKeys.add(entry.key);
+          _recordFailedRows(table, rows.length);
         }
       }
     }
@@ -789,8 +784,8 @@ class StartupSyncService {
     _failedSamplingPanelKeys.addAll(failedPanelKeys);
 
     // Read again after reconciliation so the repository's dirty cutoff covers
-    // any updated serial assignments. Re-upload all remaining rows and only
-    // then acknowledge them as synced.
+    // any updated serial assignments. Re-upload each remaining session/panel
+    // group independently, then acknowledge only successful groups.
     for (final table in _samplingSyncTables) {
       final dirty = await _panelSamplingStateRepository.getDirtyRows(table);
       final eligible = dirty
@@ -803,34 +798,61 @@ class StartupSyncService {
           })
           .toList(growable: false);
       if (eligible.isEmpty) continue;
-      final ids = _samplingRowIds(eligible);
-      final synced = await _pushBatch(
-        table,
-        eligible.length,
-        upload: () => _supabaseService.upsertRowsStrict(
-          table,
-          eligible.map(stripSyncMeta).toList(growable: false),
-        ),
-        markSynced: () =>
-            _panelSamplingStateRepository.markRowsSynced(table, ids),
-        markFailed: (error) =>
-            _panelSamplingStateRepository.markRowsFailed(table, ids, error),
-      );
-      pushed += synced;
-      if (synced == 0) {
-        // A failed or backoff-skipped reconciled upload means measurement
-        // metadata may still disagree with the cloud assignment. Keep every
-        // affected panel's measurement rows dirty for the next sync attempt.
-        for (final row in eligible) {
-          final sessionId = row['sessionId']?.toString();
-          final panelKey = row['panelKey']?.toString();
-          if (sessionId != null && panelKey != null) {
-            _failedSamplingPanelKeys.add('$sessionId\u0000$panelKey');
-          }
+      final groups = _groupSamplingRows(eligible);
+      if (retryAllowedByTable[table] == false ||
+          !_retryPolicy.shouldAttempt(table)) {
+        skippedTables.add(table);
+        failedPanelKeys.addAll(groups.keys);
+        _failedSamplingPanelKeys.addAll(groups.keys);
+        _recordFailedRows(table, eligible.length);
+        continue;
+      }
+      for (final entry in groups.entries) {
+        final rows = entry.value;
+        final ids = _samplingRowIds(rows);
+        try {
+          await _supabaseService.upsertRowsStrict(
+            table,
+            rows.map(stripSyncMeta).toList(growable: false),
+          );
+          await _panelSamplingStateRepository.markRowsSynced(table, ids);
+          pushed += rows.length;
+        } catch (error) {
+          await _panelSamplingStateRepository.markRowsFailed(table, ids, error);
+          failedTables.add(table);
+          failedPanelKeys.add(entry.key);
+          _failedSamplingPanelKeys.add(entry.key);
+          _recordFailedRows(table, rows.length);
         }
       }
     }
+
+    for (final table in attemptedTables) {
+      if (failedTables.contains(table)) {
+        _retryPolicy.recordFailure(table);
+      } else if (!skippedTables.contains(table)) {
+        _retryPolicy.recordSuccess(table);
+      }
+    }
     return pushed;
+  }
+
+  Map<String, List<Map<String, dynamic>>> _groupSamplingRows(
+    List<Map<String, dynamic>> rows,
+  ) {
+    final groups = <String, List<Map<String, dynamic>>>{};
+    for (final row in rows) {
+      final sessionId = row['sessionId']?.toString() ?? '';
+      final panelKey = row['panelKey']?.toString() ?? '';
+      final key = '$sessionId\u0000$panelKey';
+      groups.putIfAbsent(key, () => []).add(row);
+    }
+    return groups;
+  }
+
+  bool _isValidSamplingPanelKey(String key) {
+    final separator = key.indexOf('\u0000');
+    return separator > 0 && separator < key.length - 1;
   }
 
   List<String> _samplingRowIds(List<Map<String, dynamic>> rows) => rows

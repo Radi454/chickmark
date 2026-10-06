@@ -97,9 +97,9 @@ root rerun. This establishes payload handling, not live cloud convergence.
 The original live tab remains open because its station save failed; it must
 not be reloaded before its in-memory draft is safely preserved. The QA
 records are the named Sampling QA 2026-10-05 fixture under Dashboard Test
-Customer. No unrelated records are authorized for cleanup. Cloud catalog
-convergence, real photo uploads/deletions, and multi-device behavior have not
-yet been established by these checks.
+Customer. No unrelated records are authorized for cleanup. Cloud catalog convergence was subsequently established on 4543546 below.
+Real photo uploads/deletions and multi-device behavior have not been established
+by these checks.
 
 Changed product files: sampling scope controls, machine editor, audit provider,
 and Arabic localization; corresponding widget/SQLite regressions, living spec,
@@ -113,3 +113,33 @@ fingerprint bootstrap and compiled app filenames without clearing application
 storage. The Python fixture and build wrapper regressions pass; a temporary
 copy of actual release output also passes with its unregister-only service
 worker unchanged. Live verification follows deployment.
+
+## Fingerprinted release verification
+
+Pages run 37436018031 deployed 4543546 successfully. The new release resolved
+the Egg flock label, retained both QA House branches, and uploaded the QA
+hatchery, Setter 1 catalog (19200 / 4800 / 150, four trolleys and 32 trays),
+and audit session to Supabase. Repeating Trolley 4 creation and station Back
+save/reopen restored SA8 and its 100.4°F reading; screenshot 04 records it.
+
+Sampling states/nodes and their reading remain pending remotely. Detailed
+Settings sync status reported 327 failed rows; production logs showed mixed
+sampling table uploads rejected by RLS. The QA parent session and approved
+admin are valid. Current sampling uploads batch unrelated sessions together,
+allowing one invalid parent to reject the whole batch. A scoped upload
+isolation regression and fix are in progress; RLS remains unchanged.
+
+The primary checkout contains separate local sampling tab-layout changes and
+documentation edits. They are preserved; fast-forwarding that checkout to
+4543546 was stopped by Git to avoid overwriting them. The reviewed commits
+are pushed to remote main from the isolated task worktree.
+
+## Sampling upload isolation
+
+Both sampling upload passes now group by session and panel. Regressions prove
+a rejected group leaves unrelated groups and their measurements eligible, and
+a failed reconciled upload retains only its own pending measurements. Existing
+backoff, pull-only, serial reconciliation and deletion-order tests remain green.
+Agent and independent root runs each passed all 47 startup-sync tests. Root
+analysis reports only the two existing warnings listed above. Live cloud
+verification follows the release deployment.
