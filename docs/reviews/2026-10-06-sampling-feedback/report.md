@@ -1,7 +1,7 @@
 # Sampling feedback — 2026-10-06
 
-Task: sampling-feedback-20261006. Human acceptance and final live verification
-remain pending.
+Task: sampling-feedback-20261006. The feedback changes and focused live
+verification are ready for human review; product acceptance remains pending.
 
 ## Deployed browser checks
 
@@ -143,3 +143,23 @@ backoff, pull-only, serial reconciliation and deletion-order tests remain green.
 Agent and independent root runs each passed all 47 startup-sync tests. Root
 analysis reports only the two existing warnings listed above. Live cloud
 verification follows the release deployment.
+
+## Final live result and handoff
+
+Pages run 37437744321 deployed 2228c9b successfully. Authenticated sync on
+that release changed the QA visit badge to Synced (screenshot 06). Read-only
+Supabase verification found seven QA sampling states, 21 nodes, and the SA8
+Setter row with its stable sample UUID and 100.4°F setpoint. The registered
+Setter catalog, QA hatchery and visit are also present. This establishes the
+QA save/reopen and cloud upload path. The independently built release passed;
+its startup-sync suite passed all 47 tests.
+
+Human acceptance, real photo transfer/deletion, and multi-device behavior are
+not covered by this final check. Separate stale local records may still show
+sync errors; upload isolation does not delete or repair those unrelated records.
+The original tab and QA fixture remain for review. No unrelated data was deleted.
+
+Files changed span sampling controls and editor/provider UI, Egg display,
+Arabic localization, Supabase payload/startup sync, Pages build scripts, focused
+tests, and living spec/changelog/evidence. Commits were pushed to remote main.
+The primary checkout’s concurrent local sampling tab-layout edits remain intact.
