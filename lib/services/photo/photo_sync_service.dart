@@ -8,6 +8,7 @@ import '../../data/models/photo_model.dart';
 import '../../data/repositories/photo_repository.dart';
 import '../supabase/supabase_service.dart';
 import 'photo_compression.dart';
+import 'photo_data_uri.dart';
 
 class PhotoSyncService {
   PhotoSyncService({
@@ -86,11 +87,19 @@ class PhotoSyncService {
         await _repo.updateStatus(photo.id, 'metadata_pending');
       }
     }
-    // Native File APIs are unavailable in the browser, but metadata-only
-    // re-homing above is safe and required there too.
-    if (!_fileSyncSupported) return;
     for (final photo in pending) {
       try {
+        final inlineBytes = parseDurablePhotoDataUri(photo.filePath);
+        if (!_fileSyncSupported && inlineBytes == null) continue;
+        if (inlineBytes != null) {
+          if (inlineBytes.length > _maxBytes) {
+            await _repo.updateStatus(photo.id, 'failed');
+            continue;
+          }
+          await _supabase.uploadPhoto(photo);
+          await _repo.updateStatus(photo.id, 'synced');
+          continue;
+        }
         final file = File(photo.filePath);
         if (!await file.exists()) {
           await _repo.updateStatus(photo.id, 'failed');

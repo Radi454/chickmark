@@ -1,5 +1,5 @@
+import '../../../widgets/photo_grid.dart';
 import 'dart:async';
-import 'dart:io';
 
 import 'package:camera/camera.dart';
 import 'package:hatchaudit/localized_material.dart';
@@ -311,7 +311,7 @@ class InlineCameraCaptureState extends State<InlineCameraCapture>
       fit: StackFit.expand,
       children: [
         if (capturedImagePath != null)
-          Image.file(File(capturedImagePath), fit: BoxFit.cover)
+          PhotoImage(filePath: capturedImagePath, fit: BoxFit.cover)
         else
           _buildLivePreview(),
         _buildScanFrame(isScanning: widget.isScanning),

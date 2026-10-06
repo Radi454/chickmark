@@ -163,3 +163,51 @@ Files changed span sampling controls and editor/provider UI, Egg display,
 Arabic localization, Supabase payload/startup sync, Pages build scripts, focused
 tests, and living spec/changelog/evidence. Commits were pushed to remote main.
 The primary checkout’s concurrent local sampling tab-layout edits remain intact.
+
+## Resumed photo verification
+
+On the deployed 2228c9b release, QA SA8 gallery selection accepted a generated
+64×64 PNG through the normal file chooser, but the capture control remained
+empty and a second click reopened Camera/Gallery. Remote QA photo metadata
+count remained zero. The current PhotoService uses device documents-directory
+and File APIs; its catch returns null on web. Web sync skips local-file upload,
+and audit photo widgets render via Image.file. A browser byte-storage/upload
+fix is being developed; this check has not passed yet.
+
+The native photo service/repository/button baseline passed all 23 tests. No
+QA records or unrelated records were deleted in this resumed check.
+
+## Browser photo fix validation
+
+Task: `sampling-feedback-20261006` (continuation). Compressed browser captures
+now persist as JPEG data URIs in local photo records. Shared audit photo
+widgets render those bytes and private cloud references. The upload pass
+handles browser bytes while preserving native file behavior. Cloud panel
+payloads exclude inline image data; reopen joins authoritative photo metadata
+by panel and row, including the Setter Turning Angle alias and EST maps.
+
+The combined regression run passed 178 tests; its sole compile failure was a
+missing import in the newly added reconstruction test. After fixing it, all
+three reconstruction tests passed. The final five-test reconstruction/capture
+run passed after the production Turning Angle alias was added. Analysis has
+one existing warning in `local_supabase_env_loader_io.dart:23` and no new
+issues. A cheap independent review found no actionable issues.
+
+Files changed: PhotoService, PhotoSyncService, SupabaseService, PhotoRepository,
+photo_data_uri helper, station reconstruction/loading, shared PhotoImage and
+audit photo widgets, their focused tests, living spec and changelog.
+No schema migration or remote policy change is needed. Live gallery/upload/
+reopen verification follows deployment. Real device camera and independent
+multi-device UI checks remain outside this browser run.
+
+The photo patch was rebased onto the concurrent nested-tab layout commit
+`10fa83f`. Four old scope-control tests still expected free-text forms; they
+now inject catalog fakes and choose registered machines and numeric trolley
+positions while retaining duplicate/default-leaf/parent assertions. The
+integrated scope/catalog/photo reconstruction run passed all 29 tests.
+
+A predeployment save/sync retry showed the QA visit Failed. Read-only logs
+from 11:20–11:30 UTC show PostgreSQL permission errors for sync_tombstones
+and several other table reads, but no QA session identifier or named Chick
+table error. Its exact cause remains unconfirmed; this is not evidence of a
+clean cloud run. No grants or policies were changed.

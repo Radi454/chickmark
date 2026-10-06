@@ -1,9 +1,11 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/data/database/database_helper.dart';
 import 'package:hatchaudit/data/repositories/photo_repository.dart';
 import 'package:hatchaudit/data/repositories/sync_tombstone_repository.dart';
+import 'package:hatchaudit/services/photo/photo_data_uri.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -56,6 +58,17 @@ void main() {
     await repository.upsertPhoto(_remotePhotoRow());
 
     expect((await repository.getAllPhotos()).single.filePath, local.path);
+  });
+
+  test('upsertPhoto preserves a durable inline browser image', () async {
+    final localDataUri = encodePhotoDataUri(
+      Uint8List.fromList([0xff, 0xd8, 0xff, 0xd9]),
+    );
+    await _insertPhoto(localDataUri);
+
+    await repository.upsertPhoto(_remotePhotoRow());
+
+    expect((await repository.getAllPhotos()).single.filePath, localDataUri);
   });
 
   test(

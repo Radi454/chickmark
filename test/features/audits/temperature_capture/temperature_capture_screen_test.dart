@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'package:image/image.dart' as img;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/features/audits/temperature_capture/temperature_camera_port.dart';
@@ -135,35 +137,36 @@ void main() {
     expect(find.text('Photo captured for this point.'), findsOneWidget);
   });
 
-  testWidgets(
-    'opening a saved initial cell shows its attached photo for edit',
-    (tester) async {
-      final controller = _controller(
-        config: const TemperatureCaptureConfig(
-          title: 'EST',
-          initialKey: 'front_middle',
-          initialReadings: {'front_middle': 20.0},
-          initialPhotos: {'front_middle': 'front-middle.jpg'},
-        ),
-      );
+  testWidgets('opening a saved initial cell shows its attached photo for edit', (
+    tester,
+  ) async {
+    final photoPath =
+        'data:image/jpeg;base64,${base64Encode(img.encodeJpg(img.Image(width: 8, height: 8)))}';
+    final controller = _controller(
+      config: TemperatureCaptureConfig(
+        title: 'EST',
+        initialKey: 'front_middle',
+        initialReadings: {'front_middle': 20.0},
+        initialPhotos: {'front_middle': photoPath},
+      ),
+    );
 
-      await _pump(tester, controller);
+    await _pump(tester, controller);
 
-      expect(find.text('Front - Middle'), findsOneWidget);
-      expect(find.text('Enter reading manually'), findsOneWidget);
-      expect(find.text('Photo captured for this point.'), findsOneWidget);
-      expect(find.byType(Image), findsAtLeastNWidgets(1));
-      expect(
-        find.byKey(const ValueKey('temperature-photo-strip')),
-        findsOneWidget,
-      );
-      expect(find.text('1/9 photos'), findsOneWidget);
-      expect(
-        find.byKey(const ValueKey('est-grid-photo-badge-front_middle')),
-        findsOneWidget,
-      );
-    },
-  );
+    expect(find.text('Front - Middle'), findsOneWidget);
+    expect(find.text('Enter reading manually'), findsOneWidget);
+    expect(find.text('Photo captured for this point.'), findsOneWidget);
+    expect(find.byType(Image), findsAtLeastNWidgets(1));
+    expect(
+      find.byKey(const ValueKey('temperature-photo-strip')),
+      findsOneWidget,
+    );
+    expect(find.text('1/9 photos'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('est-grid-photo-badge-front_middle')),
+      findsOneWidget,
+    );
+  });
 
   testWidgets('Done pops the dirty-only result', (tester) async {
     final controller = _controller();

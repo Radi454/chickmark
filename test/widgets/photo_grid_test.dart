@@ -1,10 +1,30 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/widgets/photo_grid.dart';
+import 'package:image/image.dart' as img;
 
 void main() {
+  testWidgets('durable browser photo renders from persisted bytes', (
+    tester,
+  ) async {
+    final bytes = img.encodeJpg(img.Image(width: 8, height: 8));
+    final photoPath = 'data:image/jpeg;base64,${base64Encode(bytes)}';
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: PhotoImage(filePath: photoPath)),
+      ),
+    );
+    await tester.pump();
+    expect(isPhotoPathDisplayable(photoPath), isTrue);
+    final image = tester.widget<Image>(find.byType(Image));
+    expect(image.image, isA<MemoryImage>());
+    expect((image.image as MemoryImage).bytes, bytes);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('missing image paths render placeholders without crashing', (
     tester,
   ) async {

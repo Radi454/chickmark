@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/data/models/photo_model.dart';
 import 'package:hatchaudit/data/repositories/photo_repository.dart';
 import 'package:hatchaudit/services/photo/photo_sync_service.dart';
+import 'package:hatchaudit/services/photo/photo_data_uri.dart';
 import 'package:hatchaudit/services/supabase/supabase_service.dart';
 import 'package:image/image.dart' as img;
 import 'package:mocktail/mocktail.dart';
@@ -157,6 +158,41 @@ void main() {
       verify(() => repo.updateStatus(metadataPhoto.id, 'synced')).called(1);
       verifyNever(() => repo.getRemotePhotos());
       verifyNever(() => supabase.uploadPhoto(any()));
+    },
+  );
+
+  test(
+    'web sync uploads durable inline photos but skips native paths',
+    () async {
+      final inlinePhoto = _photo(
+        encodePhotoDataUri(Uint8List.fromList([0xff, 0xd8, 0xff, 0xd9])),
+      );
+      final nativePhoto = _photo('/device-only/capture.jpg');
+      final repo = _MockPhotoRepository();
+      final supabase = _MockSupabaseService();
+      when(() => supabase.refreshAvailability()).thenAnswer((_) async => true);
+      when(
+        () => repo.getByStatus('local'),
+      ).thenAnswer((_) async => [inlinePhoto, nativePhoto]);
+      when(() => repo.getByStatus('failed')).thenAnswer((_) async => []);
+      when(
+        () => repo.getByStatus('metadata_pending'),
+      ).thenAnswer((_) async => []);
+      when(() => supabase.uploadPhoto(inlinePhoto)).thenAnswer((_) async {});
+      when(
+        () => repo.updateStatus(inlinePhoto.id, 'synced'),
+      ).thenAnswer((_) async {});
+
+      await PhotoSyncService(
+        repository: repo,
+        supabase: supabase,
+        fileSyncSupported: false,
+      ).syncPending();
+
+      verify(() => supabase.uploadPhoto(inlinePhoto)).called(1);
+      verify(() => repo.updateStatus(inlinePhoto.id, 'synced')).called(1);
+      verifyNever(() => supabase.uploadPhoto(nativePhoto));
+      verifyNever(() => repo.updateStatus(nativePhoto.id, any()));
     },
   );
 

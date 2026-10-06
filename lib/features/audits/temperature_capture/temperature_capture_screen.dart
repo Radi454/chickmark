@@ -1,5 +1,5 @@
+import '../../../widgets/photo_grid.dart';
 import 'dart:async';
-import 'dart:io';
 
 import 'package:hatchaudit/localized_material.dart';
 
@@ -543,8 +543,8 @@ class _PhotoStripItem extends StatelessWidget {
           child: Stack(
             fit: StackFit.expand,
             children: [
-              Image.file(
-                File(path),
+              PhotoImage(
+                filePath: path,
                 fit: BoxFit.cover,
                 cacheWidth: 104,
                 cacheHeight: 104,

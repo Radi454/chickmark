@@ -1,5 +1,5 @@
+import '../../../widgets/photo_grid.dart';
 import 'dart:async';
-import 'dart:io';
 import 'package:hatchaudit/localized_material.dart';
 import 'package:provider/provider.dart';
 
@@ -117,8 +117,8 @@ class _PhotoButtonState extends State<PhotoButton> {
             // Thumbnail
             ClipRRect(
               borderRadius: BorderRadius.circular(7),
-              child: Image.file(
-                File(widget.photoPath!),
+              child: PhotoImage(
+                filePath: widget.photoPath!,
                 width: widget.size - 2,
                 height: widget.size - 2,
                 fit: BoxFit.cover,
@@ -244,7 +244,7 @@ class _PhotoButtonState extends State<PhotoButton> {
             Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Image.file(File(widget.photoPath!), fit: BoxFit.contain),
+                PhotoImage(filePath: widget.photoPath!, fit: BoxFit.contain),
               ],
             ),
             Positioned(
@@ -559,8 +559,8 @@ class _MultiPhotoButtonState extends State<MultiPhotoButton> {
             ),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(7),
-              child: Image.file(
-                File(path),
+              child: PhotoImage(
+                filePath: path,
                 width: 54,
                 height: 54,
                 fit: BoxFit.cover,

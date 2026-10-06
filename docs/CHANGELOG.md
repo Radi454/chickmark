@@ -1,5 +1,11 @@
 # ChickMark Change Log
 
+- 2026-10-06: Enabled browser photo capture and gallery persistence with compressed
+  JPEG bytes in local records, private-storage uploads, and shared photo previews.
+  Removed inline image bytes from cloud panel payloads and restored photo-backed
+  fields from metadata when reopening station forms and sampling drafts. Native
+  file capture and caching retain their existing behavior.
+
 - 2026-10-06: Rendered shared sampling choices as nested, horizontally
   scrollable tab rows with a filled, bold, underlined active tab. Preserved
   existing branch selection and paired-level behavior while retaining chip

@@ -5248,12 +5248,15 @@ sync can surface a Home-screen cloud notice
 for sessions and other records pulled from another device after the local
 database has previously synced. A successful foreground `Sync Now` action in
 Home or Settings acknowledges that notice so it disappears after the user
-manually syncs; offline or failed sync attempts leave the notice intact. The
-Flutter Web sync path pulls photo metadata but skips the native-file photo
-cache/upload pass, because browsers do not expose an application documents
-directory. This keeps Supabase row sync successful on web while preserving
-remote photo references; dashboard photo renderers turn those references into
-short-lived signed storage URLs. The authenticated shell also requests a
+manually syncs; offline or failed sync attempts leave the notice intact. Flutter Web stores captured and selected photos as compressed JPEG data URIs
+in the local photo records, so browser photos survive reloads without a native
+application documents directory. Photo sync uploads these bytes to private
+storage and sends remote path metadata; panel upserts strip inline image bytes.
+On reopen, matching photo metadata restores scalar photo fields, setter EST
+and hatcher CVT maps, and PM photo lists before reconstructing station forms
+and sampling drafts. Existing local references are preserved. Shared photo
+renderers display local bytes or resolve remote paths to short-lived signed
+storage URLs. Native capture and file caching keep using application files. The authenticated shell also requests a
 debounced sync after local customer, hatchery, flock, audit-session, or panel
 writes and on resume. Connectivity causes a run only on a verified reconnect
 transition, not on every interface event. Concurrent requests share one sync

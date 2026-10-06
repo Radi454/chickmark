@@ -4,6 +4,7 @@ import 'package:path/path.dart' as path;
 import 'package:sqflite/sqflite.dart';
 
 import '../../services/photo/photo_sync_coordinator.dart';
+import '../../services/photo/photo_data_uri.dart';
 import '../database/database_helper.dart';
 import '../models/photo_model.dart';
 import 'sync_tombstone_repository.dart';
@@ -312,7 +313,7 @@ class PhotoRepository {
 
   bool _isLocalFilePath(String? path) {
     if (path == null || path.isEmpty) return false;
-    return !_isRemotePath(path);
+    return !_isRemotePath(path) && !isDurablePhotoDataUri(path);
   }
 
   bool _isRemotePath(String? path) {
@@ -323,6 +324,7 @@ class PhotoRepository {
   }
 
   Future<bool> _isUsableLocalFile(String? filePath) async {
+    if (isDurablePhotoDataUri(filePath)) return true;
     if (!_isLocalFilePath(filePath)) return false;
     try {
       final file = File(filePath!);

@@ -8,6 +8,7 @@ import '../../core/security/safe_debug_log.dart';
 import '../../core/security/security_policy.dart';
 import '../../data/models/panel_sample_schema.dart';
 import '../../data/models/photo_model.dart';
+import '../photo/photo_data_uri.dart';
 import '../../data/models/user_model.dart';
 import '../../data/repositories/performance_sync_repository.dart';
 import '../../data/repositories/user_repository.dart';
@@ -694,9 +695,11 @@ class SupabaseService {
       throw StateError('Supabase sync is not available');
     }
 
-    final file = File(photo.filePath);
-    final bytes = await file.readAsBytes();
-    final extension = _fileExtension(photo.filePath);
+    final inlineBytes = parseDurablePhotoDataUri(photo.filePath);
+    final bytes = inlineBytes ?? await File(photo.filePath).readAsBytes();
+    final extension = inlineBytes == null
+        ? _fileExtension(photo.filePath)
+        : 'jpg';
     final storagePath =
         '${photo.sessionId}/${photo.panelName}/${photo.panelRowId}/${photo.id}.$extension';
 
@@ -1165,9 +1168,12 @@ class SupabaseService {
     String table,
     Map<String, dynamic> row,
   ) async {
-    final safeRow = _stripLocalOnlyColumns(table, row);
+    final cleanRow = stripInlinePhotoDataUris(row);
+    final safeRow = _stripLocalOnlyColumns(table, cleanRow);
     try {
-      await _client.from(table).upsert(toSupabaseUpsertPayload(table, row));
+      await _client
+          .from(table)
+          .upsert(toSupabaseUpsertPayload(table, cleanRow));
     } catch (_) {
       await _client.from(table).upsert(safeRow);
     }
@@ -1179,7 +1185,10 @@ class SupabaseService {
     bool verifyAffectedRows = false,
     String selectColumns = 'id',
   }) async {
-    final safeRows = rows
+    final cleanRows = rows
+        .map(stripInlinePhotoDataUris)
+        .toList(growable: false);
+    final safeRows = cleanRows
         .map((row) => _stripLocalOnlyColumns(table, row))
         .toList(growable: false);
     List<dynamic>? persistedRows;
@@ -1187,7 +1196,9 @@ class SupabaseService {
       final request = _client
           .from(table)
           .upsert(
-            rows.map((row) => toSupabaseUpsertPayload(table, row)).toList(),
+            cleanRows
+                .map((row) => toSupabaseUpsertPayload(table, row))
+                .toList(),
           );
       if (verifyAffectedRows) {
         persistedRows = await request.select(selectColumns);

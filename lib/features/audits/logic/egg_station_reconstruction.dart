@@ -41,6 +41,133 @@ const _pasgarPhotoFieldKeys = {
   'pasgarFeatherDevPhoto',
 };
 
+/// Restores sanitized photo paths into local panel rows before reconstruction.
+/// The photo table is authoritative for these references because inline data
+/// URIs are intentionally removed from cloud panel payloads.
+Map<String, List<Map<String, dynamic>>> hydratePanelPhotoRows(
+  Map<String, List<Map<String, dynamic>>> rowsByPanel,
+  Iterable<PhotoModel> photos,
+) {
+  final rows = {
+    for (final entry in rowsByPanel.entries)
+      entry.key: entry.value
+          .map((row) => Map<String, dynamic>.of(row))
+          .toList(),
+  };
+  final sorted = photos.toList()
+    ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+  for (final entry in rows.entries) {
+    for (final row in entry.value) {
+      final rowId = row['id']?.toString();
+      if (rowId == null) continue;
+      final associated = sorted
+          .where(
+            (photo) =>
+                photo.panelName == entry.key && photo.panelRowId == rowId,
+          )
+          .toList(growable: false);
+      for (final photo in associated) {
+        final fieldKey =
+            entry.key == 'setter_optimizing' &&
+                photo.fieldKey == 'turning_angle'
+            ? 'machineScreenPhoto'
+            : photo.fieldKey;
+        final directKey = _matchingPanelPhotoColumn(row, fieldKey);
+        if (directKey != null) {
+          if (row[directKey] == null || row[directKey].toString().isEmpty) {
+            row[directKey] = photo.filePath;
+          }
+          continue;
+        }
+        _hydratePhotoCollection(row, entry.key, photo);
+      }
+      if (associated.any((photo) => photo.fieldKey == 'pm_photo')) {
+        _hydrateMultiPhotoList(row, associated);
+      }
+    }
+  }
+  return rows;
+}
+
+String? _matchingPanelPhotoColumn(Map<String, dynamic> row, String fieldKey) {
+  final target = _normalizePhotoField(fieldKey);
+  for (final key in row.keys) {
+    if (_normalizePhotoField(key) == target &&
+        _normalizePhotoField(key).contains('photo')) {
+      return key;
+    }
+  }
+  return null;
+}
+
+String _normalizePhotoField(String value) =>
+    value.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+
+void _hydratePhotoCollection(
+  Map<String, dynamic> row,
+  String panelName,
+  PhotoModel photo,
+) {
+  final definition = switch ((panelName, photo.fieldKey)) {
+    ('setter_optimizing', final key) when key.startsWith('setter_est_') => (
+      column: 'estPhotosJson',
+      entry: key.substring('setter_est_'.length),
+    ),
+    ('hatcher_optimizing', final key) when key.startsWith('hatcher_cvt_') => (
+      column: 'cvtPhotosJson',
+      entry: key.substring('hatcher_cvt_'.length),
+    ),
+    ('chick_quality', 'cvt') => (column: 'cvtPhotosJson', entry: 'cvt'),
+    _ => null,
+  };
+  if (definition == null || !row.containsKey(definition.column)) return;
+
+  final decoded = _decodePhotoMap(row[definition.column]);
+  if (decoded[definition.entry] == null ||
+      decoded[definition.entry].toString().isEmpty) {
+    decoded[definition.entry] = photo.filePath;
+    row[definition.column] = jsonEncode(decoded);
+  }
+}
+
+Map<String, dynamic> _decodePhotoMap(Object? value) {
+  if (value is Map) return value.map((key, value) => MapEntry('$key', value));
+  if (value is! String || value.trim().isEmpty) return {};
+  try {
+    final decoded = jsonDecode(value);
+    if (decoded is! Map) return {};
+    return decoded.map((key, value) => MapEntry('$key', value));
+  } catch (_) {
+    return {};
+  }
+}
+
+void _hydrateMultiPhotoList(
+  Map<String, dynamic> row,
+  List<PhotoModel> associated,
+) {
+  if (!row.containsKey('pmPhotosJson')) return;
+  final existing = <String>[];
+  final value = row['pmPhotosJson'];
+  try {
+    final decoded = value is String ? jsonDecode(value) : value;
+    if (decoded is List) {
+      existing.addAll(
+        decoded.whereType<String>().where((path) => path.isNotEmpty),
+      );
+    }
+  } catch (_) {
+    // Replace malformed/fully-sanitized payload with the authoritative photo
+    // metadata list below.
+  }
+  for (final photo in associated.reversed) {
+    if (photo.fieldKey == 'pm_photo' && !existing.contains(photo.filePath)) {
+      existing.add(photo.filePath);
+    }
+  }
+  row['pmPhotosJson'] = jsonEncode(existing);
+}
+
 /// Hydrates photo-backed fields that intentionally have no panel-table
 /// columns. Photos are joined by the persisted station sample id, not the
 /// regenerated draft id, so reopening cannot orphan their thumbnails.
@@ -116,8 +243,8 @@ StationReconstruction reconstructStation({
     );
     for (final rowEntry in entry.value.asMap().entries) {
       final row = rowEntry.value;
-      final sampleId = panelRowAsText(row['sampleId']) ??
-          panelRowAsText(row['id']);
+      final sampleId =
+          panelRowAsText(row['sampleId']) ?? panelRowAsText(row['id']);
       if (sampleId == null) continue;
       final map = _auditMapFromPanelRows(
         stationKey,

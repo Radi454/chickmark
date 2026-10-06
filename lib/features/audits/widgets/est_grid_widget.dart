@@ -1,4 +1,4 @@
-import 'dart:io';
+import '../../../widgets/photo_grid.dart';
 
 import 'package:hatchaudit/localized_material.dart';
 
@@ -500,8 +500,8 @@ class _EvidenceThumbnail extends StatelessWidget {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            Image.file(
-              File(path),
+            PhotoImage(
+              filePath: path,
               fit: BoxFit.cover,
               cacheWidth: 120,
               cacheHeight: 80,

@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hatchaudit/core/theme/app_theme.dart';
+import 'package:hatchaudit/data/models/hatchery_machine_model.dart';
 import 'package:hatchaudit/data/models/panel_sampling_state.dart';
 import 'package:hatchaudit/data/models/sampling_scope.dart';
 import 'package:hatchaudit/data/repositories/panel_sampling_state_repository.dart';
+import 'package:hatchaudit/data/repositories/hatchery_machine_repository.dart';
 import 'package:hatchaudit/features/audits/providers/audit_provider.dart';
 import 'package:hatchaudit/features/audits/widgets/sampling_scope_controls.dart';
 import 'package:provider/provider.dart';
@@ -140,6 +142,75 @@ class _MemorySamplingRepository extends PanelSamplingStateRepository {
   Future<void> deleteSubtree({required String nodeId}) async {}
 }
 
+HatcheryMachineModel _registeredMachine({
+  required String id,
+  required String kind,
+  required String code,
+}) {
+  const batchSize = 10000;
+  const trolleyCapacity = 2500;
+  const traySize = 80;
+  final counts = HatcheryMachineModel.calculateCounts(
+    batchSize: batchSize,
+    trolleyCapacity: trolleyCapacity,
+    traySize: traySize,
+  );
+  return HatcheryMachineModel(
+    id: id,
+    hatcheryId: 'hatchery-1',
+    kind: kind,
+    code: code,
+    name: code,
+    batchSize: batchSize,
+    trolleyCapacity: trolleyCapacity,
+    traySize: traySize,
+    trolleyCount: counts.trolleyCount,
+    traysPerTrolley: counts.traysPerTrolley,
+  );
+}
+
+class _MemoryMachineRepository extends HatcheryMachineRepository {
+  _MemoryMachineRepository(this.machines);
+
+  final List<HatcheryMachineModel> machines;
+
+  @override
+  Future<List<HatcheryMachineModel>> getByHatchery(
+    String hatcheryId, {
+    String? kind,
+  }) async => machines
+      .where(
+        (machine) =>
+            machine.hatcheryId == hatcheryId &&
+            (kind == null || machine.kind == kind),
+      )
+      .toList();
+
+  @override
+  Future<HatcheryMachineModel?> getById(String id) async =>
+      machines.where((machine) => machine.id == id).firstOrNull;
+}
+
+Future<void> _selectMachine(
+  WidgetTester tester,
+  int fieldIndex,
+  String code,
+) async {
+  final field = find.byType(DropdownButtonFormField<String>).at(fieldIndex);
+  await tester.tap(field);
+  await tester.pumpAndSettle();
+  await tester.tap(find.text(code).last);
+  await tester.pumpAndSettle();
+}
+
+Future<void> _selectNumber(WidgetTester tester, String label) async {
+  final field = find.byType(DropdownButtonFormField<String>).first;
+  await tester.tap(field);
+  await tester.pumpAndSettle();
+  await tester.tap(find.text(label).last);
+  await tester.pumpAndSettle();
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -169,7 +240,7 @@ void main() {
         value: provider,
         child: MaterialApp(
           theme: AppTheme.light(),
-          home: const Scaffold(
+          home: Scaffold(
             body: SingleChildScrollView(
               child: SamplingScopeControls(panelKey: 'residue_breakout'),
             ),
@@ -255,9 +326,18 @@ void main() {
         value: provider,
         child: MaterialApp(
           theme: AppTheme.light(),
-          home: const Scaffold(
+          home: Scaffold(
             body: SingleChildScrollView(
-              child: SamplingScopeControls(panelKey: 'setter_optimizing'),
+              child: SamplingScopeControls(
+                panelKey: 'setter_optimizing',
+                machineRepository: _MemoryMachineRepository([
+                  _registeredMachine(
+                    id: 'setter-1',
+                    kind: 'setter',
+                    code: 'S-01',
+                  ),
+                ]),
+              ),
             ),
           ),
         ),
@@ -280,6 +360,12 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('Setter / Hatcher'), findsNothing);
+    expect(find.byType(DropdownButtonFormField<String>), findsOneWidget);
+    await tester.tap(find.byType(DropdownButtonFormField<String>));
+    await tester.pumpAndSettle();
+    expect(find.text('S-01'), findsOneWidget);
+    await tester.tap(find.text('S-01'));
+    await tester.pumpAndSettle();
     provider.dispose();
   });
 
@@ -316,9 +402,23 @@ void main() {
           value: provider,
           child: MaterialApp(
             theme: AppTheme.light(),
-            home: const Scaffold(
+            home: Scaffold(
               body: SingleChildScrollView(
-                child: SamplingScopeControls(panelKey: 'chick_quality'),
+                child: SamplingScopeControls(
+                  panelKey: 'chick_quality',
+                  machineRepository: _MemoryMachineRepository([
+                    _registeredMachine(
+                      id: 'setter-1',
+                      kind: 'setter',
+                      code: 'S-01',
+                    ),
+                    _registeredMachine(
+                      id: 'hatcher-1',
+                      kind: 'hatcher',
+                      code: 'H-01',
+                    ),
+                  ]),
+                ),
               ),
             ),
           ),
@@ -330,9 +430,8 @@ void main() {
       expect(find.text('Add Setter / Hatcher'), findsOneWidget);
       await tester.tap(find.text('Add Setter / Hatcher'));
       await tester.pumpAndSettle();
-      final fields = find.byType(TextFormField);
-      await tester.enterText(fields.at(0), 'QA-S1');
-      await tester.enterText(fields.at(1), 'QA-H1');
+      await _selectMachine(tester, 0, 'S-01');
+      await _selectMachine(tester, 1, 'H-01');
       await tester.tap(find.text('Save').last);
       await tester.pumpAndSettle();
 
@@ -381,9 +480,18 @@ void main() {
         value: provider,
         child: MaterialApp(
           theme: AppTheme.light(),
-          home: const Scaffold(
+          home: Scaffold(
             body: SingleChildScrollView(
-              child: SamplingScopeControls(panelKey: 'hatcher_optimizing'),
+              child: SamplingScopeControls(
+                panelKey: 'hatcher_optimizing',
+                machineRepository: _MemoryMachineRepository([
+                  _registeredMachine(
+                    id: 'hatcher-1',
+                    kind: 'hatcher',
+                    code: 'H-01',
+                  ),
+                ]),
+              ),
             ),
           ),
         ),
@@ -394,7 +502,7 @@ void main() {
 
     await tester.tap(find.text('Add Hatcher'));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextFormField), 'QA-H1');
+    await _selectMachine(tester, 0, 'H-01');
     await tester.tap(find.text('Save').last);
     await tester.pumpAndSettle();
 
@@ -414,7 +522,7 @@ void main() {
 
     await tester.tap(find.text('Add Trolley'));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextFormField), 'Q1');
+    await _selectNumber(tester, 'Trolley 1');
     await tester.tap(find.text('Save').last);
     await tester.pumpAndSettle();
 
@@ -427,22 +535,22 @@ void main() {
     );
     expect(trolleyTray.identity['code'], 'T1');
     final path = repository.state.pathFor(trolleyTray.sampleId!);
-    expect(path.hatcher, 'QA-H1');
-    expect(path.trolley, 'Q1');
+    expect(path.hatcher, 'H-01');
+    expect(path.trolley, 'TR1');
     expect(path.tray, 'T1');
 
     await tester.tap(find.text('Add Trolley'));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextFormField), 'Q2');
+    await _selectNumber(tester, 'Trolley 2');
     await tester.tap(find.text('Save').last);
     await tester.pumpAndSettle();
     final siblingTrolley = repository.state.nodes.singleWhere(
       (node) =>
           node.level == SamplingScopeLevel.trolley &&
-          node.identity['code'] == 'Q2',
+          node.identity['code'] == 'TR2',
     );
     expect(siblingTrolley.parentId, hatcher.id);
-    await tester.tap(find.text('Q1'));
+    await tester.tap(find.text('Trolley 1'));
     await tester.pumpAndSettle();
     expect(
       provider.activeSampleIdFor('hatcher_optimizing'),
@@ -522,6 +630,9 @@ void main() {
     tester,
   ) async {
     final repository = _MemorySamplingRepository();
+    final machines = _MemoryMachineRepository([
+      _registeredMachine(id: 'hatcher-1', kind: 'hatcher', code: 'H-01'),
+    ]);
     final provider =
         AuditProvider(
           autosaveEnabled: false,
@@ -540,10 +651,13 @@ void main() {
     await tester.pumpWidget(
       ChangeNotifierProvider.value(
         value: provider,
-        child: const MaterialApp(
+        child: MaterialApp(
           home: Scaffold(
             body: SingleChildScrollView(
-              child: SamplingScopeControls(panelKey: 'residue_breakout'),
+              child: SamplingScopeControls(
+                panelKey: 'residue_breakout',
+                machineRepository: machines,
+              ),
             ),
           ),
         ),
@@ -565,7 +679,7 @@ void main() {
     expect(provider.activeSampleIdFor('residue_breakout'), 'sample-1');
     await tester.tap(find.byTooltip('Add Hatcher'));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextFormField), 'H2');
+    await _selectMachine(tester, 0, 'H-01');
     await tester.tap(find.text('Save'));
     await tester.pumpAndSettle();
     if (find.text('Delete and continue').evaluate().isNotEmpty) {

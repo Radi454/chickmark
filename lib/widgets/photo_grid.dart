@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import '../services/photo/photo_data_uri.dart';
+
 import 'package:flutter/foundation.dart';
 import 'package:hatchaudit/localized_material.dart';
 import 'package:hatchaudit/core/constants/app_colors.dart';
@@ -16,6 +18,7 @@ bool isPhotoPathDisplayable(String? candidate) {
   if (_isNetworkPhotoPath(path) || path.startsWith('supabase://photos/')) {
     return true;
   }
+  if (isDurablePhotoDataUri(path)) return true;
   if (kIsWeb) return false;
   return File(path).existsSync();
 }
@@ -96,7 +99,12 @@ class PhotoGrid extends StatelessWidget {
 class PhotoImage extends StatefulWidget {
   final String filePath;
   final BoxFit fit;
+  final double? width;
+  final double? height;
   final int? cacheWidth;
+  final int? cacheHeight;
+  final FilterQuality filterQuality;
+  final ImageErrorWidgetBuilder? errorBuilder;
   final PhotoUrlResolver? remoteUrlResolver;
   final PhotoPlaceholderBuilder? placeholderBuilder;
 
@@ -104,7 +112,12 @@ class PhotoImage extends StatefulWidget {
     super.key,
     required this.filePath,
     this.fit = BoxFit.cover,
+    this.width,
+    this.height,
     this.cacheWidth,
+    this.cacheHeight,
+    this.filterQuality = FilterQuality.medium,
+    this.errorBuilder,
     this.remoteUrlResolver,
     this.placeholderBuilder,
   });
@@ -148,6 +161,21 @@ class _PhotoImageState extends State<PhotoImage> {
   @override
   Widget build(BuildContext context) {
     final path = widget.filePath.trim();
+    final localBytes = parseDurablePhotoDataUri(path);
+    if (localBytes != null) {
+      return Image.memory(
+        localBytes,
+        width: widget.width,
+        height: widget.height,
+        fit: widget.fit,
+        cacheWidth: widget.cacheWidth,
+        cacheHeight: widget.cacheHeight,
+        filterQuality: widget.filterQuality,
+        errorBuilder:
+            widget.errorBuilder ??
+            (context, error, stackTrace) => _buildPlaceholder(context),
+      );
+    }
     if (_isNetworkPhotoPath(path)) {
       return _buildNetworkImage(path);
     }
@@ -174,8 +202,14 @@ class _PhotoImageState extends State<PhotoImage> {
     return Image.file(
       file,
       fit: widget.fit,
+      width: widget.width,
+      height: widget.height,
       cacheWidth: widget.cacheWidth,
-      errorBuilder: (context, error, stackTrace) => _buildPlaceholder(context),
+      cacheHeight: widget.cacheHeight,
+      filterQuality: widget.filterQuality,
+      errorBuilder:
+          widget.errorBuilder ??
+          (context, error, stackTrace) => _buildPlaceholder(context),
     );
   }
 
@@ -183,10 +217,16 @@ class _PhotoImageState extends State<PhotoImage> {
     return Image.network(
       url,
       fit: widget.fit,
+      width: widget.width,
+      height: widget.height,
       cacheWidth: widget.cacheWidth,
+      cacheHeight: widget.cacheHeight,
+      filterQuality: widget.filterQuality,
       loadingBuilder: (context, child, progress) =>
           progress == null ? child : _buildPlaceholder(context),
-      errorBuilder: (context, error, stackTrace) => _buildPlaceholder(context),
+      errorBuilder:
+          widget.errorBuilder ??
+          (context, error, stackTrace) => _buildPlaceholder(context),
     );
   }
 

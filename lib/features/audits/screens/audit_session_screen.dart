@@ -6,6 +6,7 @@ import '../../../core/security/safe_debug_log.dart';
 import '../../../core/theme/gradient_app_bar.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../data/models/audit_model.dart';
+import '../../../data/models/photo_model.dart';
 import '../../../data/models/audit_session_model.dart';
 import '../../../data/models/station_sample_model.dart';
 import '../../../data/repositories/audit_repository.dart';
@@ -1237,18 +1238,19 @@ class _StationFrameState extends State<_StationFrame> {
         rowsByPanel[table] = await widget.panelSampleRepository
             .getRowsBySessionId(table, widget.sessionId);
       }
+      final photoRepository = widget.photoRepository;
+      final photos = photoRepository == null
+          ? const <PhotoModel>[]
+          : await photoRepository.getBySessionId(widget.sessionId);
+      final hydratedRows = hydratePanelPhotoRows(rowsByPanel, photos);
       var reconstruction = reconstructStation(
         stationKey: widget.stationKey,
         sessionId: widget.sessionId,
         context: widget.context,
-        rowsByPanel: rowsByPanel,
+        rowsByPanel: hydratedRows,
       );
-      final photoRepository = widget.photoRepository;
       if (photoRepository != null) {
-        reconstruction = overlayPanelPhotos(
-          reconstruction,
-          await photoRepository.getBySessionId(widget.sessionId),
-        );
+        reconstruction = overlayPanelPhotos(reconstruction, photos);
       }
       if (widget.stationKey == 'egg') {
         reconstruction = overlayEggGradingCounts(
