@@ -5256,7 +5256,11 @@ On reopen, matching photo metadata restores scalar photo fields, setter EST
 and hatcher CVT maps, and PM photo lists before reconstructing station forms
 and sampling drafts. Existing local references are preserved. Shared photo
 renderers display local bytes or resolve remote paths to short-lived signed
-storage URLs. Native capture and file caching keep using application files. The authenticated shell also requests a
+storage URLs. Native capture and file caching keep using application files. Ordinary photo
+uploads omit an empty observation association. Metadata re-homing clears empty
+associations on current schemas and retries without that optional field only
+when a legacy cloud schema reports it missing. Nonempty observation associations
+are preserved and do not use that fallback. The authenticated shell also requests a
 debounced sync after local customer, hatchery, flock, audit-session, or panel
 writes and on resume. Connectivity causes a run only on a verified reconnect
 transition, not on every interface event. Concurrent requests share one sync

@@ -1,5 +1,10 @@
 # ChickMark Change Log
 
+- 2026-10-06: Kept ordinary photo metadata uploads compatible with legacy cloud
+  schemas missing observation_id. Preserved association clearing on current
+  schemas and rejected missing-column fallback for linked observations. Added
+  upload and metadata-update HTTP regressions.
+
 - 2026-10-06: Enabled browser photo capture and gallery persistence with compressed
   JPEG bytes in local records, private-storage uploads, and shared photo previews.
   Removed inline image bytes from cloud panel payloads and restored photo-backed

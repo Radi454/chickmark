@@ -717,7 +717,7 @@ class SupabaseService {
     final remotePhotoPath = SupabaseSecurityPolicy.isPublicPhotoUrlEnabled
         ? _client.storage.from('photos').getPublicUrl(storagePath)
         : 'supabase://photos/$storagePath';
-    await _upsertWithFallback('photos', {
+    final metadata = <String, dynamic>{
       'id': photo.id,
       'filePath': remotePhotoPath,
       'description': photo.description,
@@ -726,24 +726,54 @@ class SupabaseService {
       'panelName': photo.panelName,
       'panelRowId': photo.panelRowId,
       'fieldKey': photo.fieldKey,
-      'observationId': photo.observationId,
       'uploadStatus': 'synced',
-    });
+    };
+    final observationId = photo.observationId?.trim();
+    if (observationId != null && observationId.isNotEmpty) {
+      metadata['observationId'] = observationId;
+    }
+    await _upsertWithFallback('photos', metadata);
   }
 
   Future<void> upsertPhotoMetadata(PhotoModel photo) async {
     if (!await _prepareRemoteAccess()) {
       throw StateError('Supabase sync is not available');
     }
-    final updated = await _client
-        .from('photos')
-        .update({
-          'panel_name': photo.panelName,
-          'panel_row_id': photo.panelRowId,
-          'observation_id': photo.observationId,
-        })
-        .eq('id', photo.id)
-        .select('id');
+    final observationId = photo.observationId?.trim();
+    final update = <String, dynamic>{
+      'panel_name': photo.panelName,
+      'panel_row_id': photo.panelRowId,
+      // Keep null here so modern schemas clear stale associations. Legacy
+      // schemas without the optional column retry below without this key.
+      'observation_id': observationId == null || observationId.isEmpty
+          ? null
+          : observationId,
+    };
+    List<Map<String, dynamic>> updated;
+    try {
+      updated = await _client
+          .from('photos')
+          .update(update)
+          .eq('id', photo.id)
+          .select('id');
+    } on PostgrestException catch (error) {
+      final missingOptionalColumn =
+          error.code == 'PGRST204' &&
+          error.message.toLowerCase().contains('observation_id') &&
+          error.message.toLowerCase().contains('photos');
+      if (observationId != null && observationId.isNotEmpty ||
+          !missingOptionalColumn) {
+        rethrow;
+      }
+      updated = await _client
+          .from('photos')
+          .update({
+            'panel_name': photo.panelName,
+            'panel_row_id': photo.panelRowId,
+          })
+          .eq('id', photo.id)
+          .select('id');
+    }
     if (!photoMetadataUpdateAcknowledged(updated, photo.id)) {
       throw StateError('Remote photo metadata row was not found');
     }

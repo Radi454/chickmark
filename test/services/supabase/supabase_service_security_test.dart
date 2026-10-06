@@ -1,4 +1,8 @@
 import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:hatchaudit/data/models/photo_model.dart';
+import 'package:hatchaudit/services/photo/photo_data_uri.dart';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -457,4 +461,121 @@ void main() {
       );
     },
   );
+
+  for (final observationId in <String?>[null, 'observation-1']) {
+    test(
+      'photo upload sends only populated observation association $observationId',
+      () async {
+        Map<String, dynamic>? metadata;
+        final client = SupabaseClient(
+          'http://localhost:54321',
+          'test-key',
+          httpClient: MockClient((request) async {
+            if (request.url.path == '/rest/v1/photos') {
+              metadata = jsonDecode(request.body) as Map<String, dynamic>;
+            }
+            return http.Response(
+              request.url.path.startsWith('/storage/')
+                  ? '{"Key":"photos/test.jpg"}'
+                  : '[]',
+              200,
+              headers: {'content-type': 'application/json'},
+              request: request,
+            );
+          }),
+        );
+        final service = SupabaseService(
+          isConfiguredForTesting: () => true,
+          checkNetworkAvailableForTesting: () async => true,
+          initializeSupabaseForTesting: () async => true,
+          clientForTesting: () => client,
+        );
+        await service.uploadPhoto(
+          PhotoModel(
+            id: 'photo-1',
+            filePath: encodePhotoDataUri(Uint8List.fromList([1, 2, 3])),
+            createdAt: DateTime(2026, 10, 6),
+            sessionId: 'session-1',
+            panelName: 'setter_optimizing',
+            panelRowId: 'row-1',
+            fieldKey: 'turning_angle',
+            observationId: observationId,
+          ),
+        );
+        expect(metadata, isNotNull);
+        expect(metadata!.containsKey('observation_id'), observationId != null);
+        if (observationId != null) {
+          expect(metadata!['observation_id'], observationId);
+        }
+        expect(metadata!['file_path'], startsWith('supabase://photos/'));
+      },
+    );
+  }
+  for (final scenario in ['modern', 'legacy-null', 'legacy-linked']) {
+    test(
+      'photo metadata update preserves association semantics: $scenario',
+      () async {
+        final updates = <Map<String, dynamic>>[];
+        final client = SupabaseClient(
+          'http://localhost:54321',
+          'test-key',
+          httpClient: MockClient((request) async {
+            final update = jsonDecode(request.body) as Map<String, dynamic>;
+            updates.add(update);
+            if (scenario != 'modern' && update.containsKey('observation_id')) {
+              return http.Response(
+                jsonEncode({
+                  'code': 'PGRST204',
+                  'message':
+                      "Could not find the 'observation_id' column of 'photos' in the schema cache",
+                }),
+                400,
+                headers: {'content-type': 'application/json'},
+                request: request,
+              );
+            }
+            return http.Response(
+              '[{"id":"photo-1"}]',
+              200,
+              headers: {'content-type': 'application/json'},
+              request: request,
+            );
+          }),
+        );
+        final service = SupabaseService(
+          isConfiguredForTesting: () => true,
+          checkNetworkAvailableForTesting: () async => true,
+          initializeSupabaseForTesting: () async => true,
+          clientForTesting: () => client,
+        );
+        final photo = PhotoModel(
+          id: 'photo-1',
+          filePath: 'supabase://photos/test.jpg',
+          createdAt: DateTime(2026, 10, 6),
+          sessionId: 'session-1',
+          panelName: 'setter_optimizing',
+          panelRowId: 'row-1',
+          fieldKey: 'turning_angle',
+          observationId: scenario == 'legacy-linked' ? 'observation-1' : null,
+        );
+        if (scenario == 'legacy-linked') {
+          await expectLater(
+            service.upsertPhotoMetadata(photo),
+            throwsA(isA<PostgrestException>()),
+          );
+          expect(updates, hasLength(1));
+          expect(updates.single['observation_id'], 'observation-1');
+        } else {
+          await service.upsertPhotoMetadata(photo);
+          expect(updates.first.containsKey('observation_id'), isTrue);
+          expect(updates.first['observation_id'], isNull);
+          expect(updates, hasLength(scenario == 'modern' ? 1 : 2));
+          if (scenario == 'legacy-null') {
+            expect(updates.last.containsKey('observation_id'), isFalse);
+            expect(updates.last['panel_row_id'], 'row-1');
+          }
+        }
+      },
+    );
+  }
 }

@@ -211,3 +211,24 @@ from 11:20–11:30 UTC show PostgreSQL permission errors for sync_tombstones
 and several other table reads, but no QA session identifier or named Chick
 table error. Its exact cause remains unconfirmed; this is not evidence of a
 clean cloud run. No grants or policies were changed.
+
+## Live browser photo verification and compatibility repair
+
+Pages run 37456520073 deployed 8f6f17d successfully. A synthetic blue PNG
+selected through Gallery appeared as a thumbnail and in preview (07). Saving,
+full browser reload, signing in and reopening Setter SA8 retained the image
+(08). Reload currently asks for sign-in despite Remember me; this is recorded
+as an unresolved authentication persistence issue rather than a photo loss.
+
+The QA visit returned to Synced after fresh authentication. The object
+`1791286389781000.jpg` reached private storage, but metadata initially remained
+absent. Inspection confirmed the cloud photos table lacks observation_id and
+the raw-observation table. Ordinary uploads now omit empty observation IDs;
+metadata updates retain null-clearing on current schemas and retry without the
+field only for the specific legacy missing-column response. Linked observations
+keep their validation and fail when their required schema is absent. No cloud
+schema or permission was changed. The 38-test photo/security run passed.
+
+The delegated compatibility implementation was interrupted by model usage
+limits; root finished its tests, corrected its response list type, and reviewed
+the diff. The auth diagnosis could not finish for the same reason.
