@@ -1,0 +1,566 @@
+{
+  "fixture": "Sampling QA 2026-10-05",
+  "panel": "candled_egg_breakout",
+  "checks": [
+    {
+      "house": 1,
+      "trolley": 1,
+      "tray": 1,
+      "expected": 11,
+      "passed": true
+    },
+    {
+      "house": 1,
+      "trolley": 1,
+      "tray": 2,
+      "expected": 12,
+      "passed": true
+    },
+    {
+      "house": 1,
+      "trolley": 2,
+      "tray": 1,
+      "expected": 13,
+      "passed": true
+    },
+    {
+      "house": 1,
+      "trolley": 2,
+      "tray": 2,
+      "expected": 14,
+      "passed": true
+    },
+    {
+      "house": 1,
+      "trolley": 3,
+      "tray": 1,
+      "expected": 15,
+      "passed": true
+    },
+    {
+      "house": 1,
+      "trolley": 3,
+      "tray": 2,
+      "expected": 16,
+      "passed": true
+    },
+    {
+      "house": 1,
+      "trolley": 4,
+      "tray": 1,
+      "expected": 17,
+      "passed": true
+    },
+    {
+      "house": 1,
+      "trolley": 4,
+      "tray": 2,
+      "expected": 18,
+      "passed": true
+    },
+    {
+      "house": 2,
+      "trolley": 1,
+      "tray": 1,
+      "expected": 21,
+      "passed": true
+    },
+    {
+      "house": 2,
+      "trolley": 1,
+      "tray": 2,
+      "expected": 22,
+      "passed": true
+    },
+    {
+      "house": 2,
+      "trolley": 2,
+      "tray": 1,
+      "expected": 23,
+      "passed": true
+    },
+    {
+      "house": 2,
+      "trolley": 2,
+      "tray": 2,
+      "expected": 24,
+      "passed": true
+    },
+    {
+      "house": 2,
+      "trolley": 3,
+      "tray": 1,
+      "expected": 25,
+      "passed": true
+    },
+    {
+      "house": 2,
+      "trolley": 3,
+      "tray": 2,
+      "expected": 26,
+      "passed": true
+    },
+    {
+      "house": 2,
+      "trolley": 4,
+      "tray": 1,
+      "expected": 27,
+      "passed": true
+    },
+    {
+      "house": 2,
+      "trolley": 4,
+      "tray": 2,
+      "expected": 28,
+      "passed": true
+    },
+    {
+      "house": 3,
+      "trolley": 1,
+      "tray": 1,
+      "expected": 31,
+      "passed": true
+    },
+    {
+      "house": 3,
+      "trolley": 1,
+      "tray": 2,
+      "expected": 32,
+      "passed": true
+    },
+    {
+      "house": 3,
+      "trolley": 2,
+      "tray": 1,
+      "expected": 33,
+      "passed": true
+    },
+    {
+      "house": 3,
+      "trolley": 2,
+      "tray": 2,
+      "expected": 34,
+      "passed": true
+    },
+    {
+      "house": 3,
+      "trolley": 3,
+      "tray": 1,
+      "expected": 35,
+      "passed": true
+    },
+    {
+      "house": 3,
+      "trolley": 3,
+      "tray": 2,
+      "expected": 36,
+      "passed": true
+    },
+    {
+      "house": 3,
+      "trolley": 4,
+      "tray": 1,
+      "expected": 37,
+      "passed": true
+    },
+    {
+      "house": 3,
+      "trolley": 4,
+      "tray": 2,
+      "expected": 38,
+      "passed": true
+    },
+    {
+      "house": 4,
+      "trolley": 1,
+      "tray": 1,
+      "expected": 41,
+      "passed": true
+    },
+    {
+      "house": 4,
+      "trolley": 1,
+      "tray": 2,
+      "expected": 42,
+      "passed": true
+    },
+    {
+      "house": 4,
+      "trolley": 2,
+      "tray": 1,
+      "expected": 43,
+      "passed": true
+    },
+    {
+      "house": 4,
+      "trolley": 2,
+      "tray": 2,
+      "expected": 44,
+      "passed": true
+    },
+    {
+      "house": 4,
+      "trolley": 3,
+      "tray": 1,
+      "expected": 45,
+      "passed": true
+    },
+    {
+      "house": 4,
+      "trolley": 3,
+      "tray": 2,
+      "expected": 46,
+      "passed": true
+    },
+    {
+      "house": 4,
+      "trolley": 4,
+      "tray": 1,
+      "expected": 47,
+      "passed": true
+    },
+    {
+      "house": 4,
+      "trolley": 4,
+      "tray": 2,
+      "expected": 48,
+      "passed": true
+    },
+    {
+      "house": 5,
+      "trolley": 1,
+      "tray": 1,
+      "expected": 51,
+      "passed": true
+    },
+    {
+      "house": 5,
+      "trolley": 1,
+      "tray": 2,
+      "expected": 52,
+      "passed": true
+    },
+    {
+      "house": 5,
+      "trolley": 2,
+      "tray": 1,
+      "expected": 53,
+      "passed": true
+    },
+    {
+      "house": 5,
+      "trolley": 2,
+      "tray": 2,
+      "expected": 54,
+      "passed": true
+    },
+    {
+      "house": 5,
+      "trolley": 3,
+      "tray": 1,
+      "expected": 55,
+      "passed": true
+    },
+    {
+      "house": 5,
+      "trolley": 3,
+      "tray": 2,
+      "expected": 56,
+      "passed": true
+    },
+    {
+      "house": 5,
+      "trolley": 4,
+      "tray": 1,
+      "expected": 57,
+      "passed": true
+    },
+    {
+      "house": 5,
+      "trolley": 4,
+      "tray": 2,
+      "expected": 58,
+      "passed": true
+    },
+    {
+      "house": 6,
+      "trolley": 1,
+      "tray": 1,
+      "expected": 61,
+      "passed": true
+    },
+    {
+      "house": 6,
+      "trolley": 1,
+      "tray": 2,
+      "expected": 62,
+      "passed": true
+    },
+    {
+      "house": 6,
+      "trolley": 2,
+      "tray": 1,
+      "expected": 63,
+      "passed": true
+    },
+    {
+      "house": 6,
+      "trolley": 2,
+      "tray": 2,
+      "expected": 64,
+      "passed": true
+    },
+    {
+      "house": 6,
+      "trolley": 3,
+      "tray": 1,
+      "expected": 65,
+      "passed": true
+    },
+    {
+      "house": 6,
+      "trolley": 3,
+      "tray": 2,
+      "expected": 66,
+      "passed": true
+    },
+    {
+      "house": 6,
+      "trolley": 4,
+      "tray": 1,
+      "expected": 67,
+      "passed": true
+    },
+    {
+      "house": 6,
+      "trolley": 4,
+      "tray": 2,
+      "expected": 68,
+      "passed": true
+    },
+    {
+      "house": 7,
+      "trolley": 1,
+      "tray": 1,
+      "expected": 71,
+      "passed": true
+    },
+    {
+      "house": 7,
+      "trolley": 1,
+      "tray": 2,
+      "expected": 72,
+      "passed": true
+    },
+    {
+      "house": 7,
+      "trolley": 2,
+      "tray": 1,
+      "expected": 73,
+      "passed": true
+    },
+    {
+      "house": 7,
+      "trolley": 2,
+      "tray": 2,
+      "expected": 74,
+      "passed": true
+    },
+    {
+      "house": 7,
+      "trolley": 3,
+      "tray": 1,
+      "expected": 75,
+      "passed": true
+    },
+    {
+      "house": 7,
+      "trolley": 3,
+      "tray": 2,
+      "expected": 76,
+      "passed": true
+    },
+    {
+      "house": 7,
+      "trolley": 4,
+      "tray": 1,
+      "expected": 77,
+      "passed": true
+    },
+    {
+      "house": 7,
+      "trolley": 4,
+      "tray": 2,
+      "expected": 78,
+      "passed": true
+    },
+    {
+      "house": 8,
+      "trolley": 1,
+      "tray": 1,
+      "expected": 81,
+      "passed": true
+    },
+    {
+      "house": 8,
+      "trolley": 1,
+      "tray": 2,
+      "expected": 82,
+      "passed": true
+    },
+    {
+      "house": 8,
+      "trolley": 2,
+      "tray": 1,
+      "expected": 83,
+      "passed": true
+    },
+    {
+      "house": 8,
+      "trolley": 2,
+      "tray": 2,
+      "expected": 84,
+      "passed": true
+    },
+    {
+      "house": 8,
+      "trolley": 3,
+      "tray": 1,
+      "expected": 85,
+      "passed": true
+    },
+    {
+      "house": 8,
+      "trolley": 3,
+      "tray": 2,
+      "expected": 86,
+      "passed": true
+    },
+    {
+      "house": 8,
+      "trolley": 4,
+      "tray": 1,
+      "expected": 87,
+      "passed": true
+    },
+    {
+      "house": 8,
+      "trolley": 4,
+      "tray": 2,
+      "expected": 88,
+      "passed": true
+    },
+    {
+      "house": 9,
+      "trolley": 1,
+      "tray": 1,
+      "expected": 91,
+      "passed": true
+    },
+    {
+      "house": 9,
+      "trolley": 1,
+      "tray": 2,
+      "expected": 92,
+      "passed": true
+    },
+    {
+      "house": 9,
+      "trolley": 2,
+      "tray": 1,
+      "expected": 93,
+      "passed": true
+    },
+    {
+      "house": 9,
+      "trolley": 2,
+      "tray": 2,
+      "expected": 94,
+      "passed": true
+    },
+    {
+      "house": 9,
+      "trolley": 3,
+      "tray": 1,
+      "expected": 95,
+      "passed": true
+    },
+    {
+      "house": 9,
+      "trolley": 3,
+      "tray": 2,
+      "expected": 96,
+      "passed": true
+    },
+    {
+      "house": 9,
+      "trolley": 4,
+      "tray": 1,
+      "expected": 97,
+      "passed": true
+    },
+    {
+      "house": 9,
+      "trolley": 4,
+      "tray": 2,
+      "expected": 98,
+      "passed": true
+    },
+    {
+      "house": 10,
+      "trolley": 1,
+      "tray": 1,
+      "expected": 101,
+      "passed": true
+    },
+    {
+      "house": 10,
+      "trolley": 1,
+      "tray": 2,
+      "expected": 102,
+      "passed": true
+    },
+    {
+      "house": 10,
+      "trolley": 2,
+      "tray": 1,
+      "expected": 103,
+      "passed": true
+    },
+    {
+      "house": 10,
+      "trolley": 2,
+      "tray": 2,
+      "expected": 104,
+      "passed": true
+    },
+    {
+      "house": 10,
+      "trolley": 3,
+      "tray": 1,
+      "expected": 105,
+      "passed": true
+    },
+    {
+      "house": 10,
+      "trolley": 3,
+      "tray": 2,
+      "expected": 106,
+      "passed": true
+    },
+    {
+      "house": 10,
+      "trolley": 4,
+      "tray": 1,
+      "expected": 107,
+      "passed": true
+    },
+    {
+      "house": 10,
+      "trolley": 4,
+      "tray": 2,
+      "expected": 108,
+      "passed": true
+    }
+  ]
+}

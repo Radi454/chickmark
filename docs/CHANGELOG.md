@@ -1,5 +1,9 @@
 # ChickMark Change Log
 
+- 2026-10-06: Granted authenticated and service-role writers execution on the
+  deterministic Chick legacy quality flag helper required by the cloud cache
+  trigger, without granting anon access or changing the helper's security mode.
+
 - 2026-10-06: Resolved the Chicks Hatchery banner, Chick Weights Flock tile,
   and Hatch Analysis FLOCK tile through customer reference data so they show
   names while keeping UUIDs in audit context and persistence. Added widget

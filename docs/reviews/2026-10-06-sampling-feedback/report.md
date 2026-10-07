@@ -262,3 +262,93 @@ and evidence. Latest validation: 38 photo/security tests pass, integrated UI
 29 tests pass, release build passes, analyzer only the existing environment
 loader warning. Changes were reviewed and pushed to main; no unrelated
 records were removed and primary checkout local edits remain preserved.
+
+
+## Ten-House comprehensive sampling checkpoint
+
+The user supplied fresh authorization to delete only the named Sampling QA
+records. The previous Setter Trolley 4 / SA8 branch was deleted through the
+confirmation dialog. Local siblings survived; read-only cloud joins confirmed
+its measurement, photo metadata and private storage object were all absent.
+The earlier pending deletion confirmation is therefore resolved.
+
+A complete Candled Egg hierarchy was entered through the live app: 10 Houses,
+each with Setter 1, Hatcher 2, Trolleys 1–4 and Trays 1–2. These numbers repeat
+under different parents. The resulting 80 terminal samples have distinct stable
+sample UUIDs and full paths. Cloud node counts are 10 House, 10 Setter,
+10 Hatcher, 40 Trolley and 80 Tray nodes. The registered machine catalog stays
+hatchery-owned; branch nodes provide the per-House identity.
+
+Each leaf received an Infertile count of `house*10 + 2*trolley - 2 + tray`,
+with tray size 150. Some early automated semantic fills did not enter Flutter's
+actual editing control; root corrected the entry method to native keyboard input,
+checked displayed percentages, saved and reloaded. This was an automation
+limitation, not established product data loss. All 80 cloud counts then matched
+the expected formula (zero mismatches). A second, read-only traversal after
+full reload verified all 80 UI values without re-entering them. The full results
+are in `ten-house-reopen-checks.json`.
+
+To test parent isolation, House 10 / Trolley 4 was deleted with its 2 trays and
+2 measurements (13). House 1 / Trolley 4 / Tray 2 retained its count of 18.
+Cloud counts fell to 78, with all other Houses retaining 8 samples and House 10
+retaining 6. The branch was then recreated from the numeric registered lists.
+Only Trolley 4 was offered (used 1–3 were excluded); Tray 1 was excluded from
+the Add Tray list. The recreated trays received new serials SA112/SA113 and
+counts 107/108. This retains the full fixture for human inspection.
+
+The QA visit received five Egg weights (59–63g, mean 61.0g), Chick quality
+sample size 50, Setter setpoint 100.1F / RH55 and Hatcher setpoint 98.5F / RH65.
+The app now shows 5/5 stations completed. This is core station completion,
+not a claim that every optional measurement/photo control was exercised.
+
+A live delay exposed sampling retry backoff keyed by table even though uploads
+were already grouped by session/panel. The narrow fix scopes retry keys to each
+table and session/panel and rechecks policy before reconciled uploads. It leaves
+SQLite schema, dirty cutoffs, pull-only roles and remote policies unchanged.
+An initial existing test caught a missed recheck; the corrected 48-test suite
+passes, targeted analysis reports no issues and release web build passes.
+Independent review found no data-loss issue; successful sibling-table uploads
+may still repeat while another table in the same panel is deferred, which is
+existing harmless retry overhead. Commit `39d2560` is pushed to main; live
+post-deployment confirmation is still in progress at this checkpoint.
+
+Additional UI review found registry UUIDs still shown in Chicks and Hatch
+headings; a display-only name resolution repair is delegated. Full browser
+reload still requires sign-in with the current in-memory web auth storage.
+Native camera and an independent second-device UI session remain untested.
+Human product acceptance is pending.
+
+## Approved cloud rollout and final sync — 2026-10-07
+
+The human explicitly approved the Chick V2 live release. The three existing
+Phase 2–4 migrations and an additive writer-only pure-helper grant were applied
+in one rollout. Original migration versions were recorded in cloud history to
+prevent later duplicate Phase 2 constraint application. A private snapshot of
+the 13 existing cloud rows was retained outside the repository. Comparison after
+release found zero changes to their pre-existing columns except the intended
+scope_type normalization; IDs and measurements are unchanged.
+
+Authenticated and service-role helper execution succeeds; anon execution remains
+denied. An authenticated-role SQL call succeeds. Security advisors introduce
+zero new findings relative to the preflight baseline.
+
+The live acada81 app now displays the QA visit as Completed, 5/5 stations,
+Synced (16). Cloud verification finds two QA Chick quality parents and one
+normalized pasgarSampleSize observation with numeric_value 50. The final cloud
+Candled sample count is 80, with 80 distinct sample IDs, 80 paths, ten Houses
+and 80 nonzero measurements. Reopening the live record shows all ten House
+tabs and House 1's 7.3% Infertile value; Hatch FLOCK resolves its registered name.
+
+The name repair acada81 is deployed through successful Pages run 37526115833.
+Validation: 48 startup-sync tests, 66 focused widget tests, eight Chick migration
+and observation-sync tests; targeted analysis and release web build passed.
+The Phase 4 fresh-install assertion now follows current SQLite schema version
+83. Independent migration review found the missing helper grant, which this
+additive migration fixes. CodeRabbit reported zero findings on the retry patch.
+
+Task: sampling-feedback-20261006. Changed files: writer-grant SQL migration,
+Living Spec, Changelog, Phase 4 migration test and this report/evidence folder.
+The full QA fixture remains available for human review. Native camera and an
+independent second-device UI session remain untested; this result does not claim
+every optional measurement control in the application was exercised. Human
+product acceptance remains pending.

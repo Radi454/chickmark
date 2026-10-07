@@ -762,9 +762,11 @@ Station save behavior:
   SQLite v65 backfills existing rows without changing their measurements,
   identity, provenance, or sync bookkeeping. The migration-only cloud mirror
   never trusts caller-supplied quality caches: every insert and measurement
-  update receives a conservative `legacy_quality_unclassified` flag. A pulled
-  row is classified exactly from the generated registry when SQLite stores it,
-  including rows from older clients that omit both cache columns.
+  update receives a conservative `legacy_quality_unclassified` flag. The
+  deterministic helper used by the cloud cache trigger is executable by
+  authenticated and service-role writers, and remains unavailable to anon. A
+  pulled row is classified exactly from the generated registry when SQLite
+  stores it, including rows from older clients that omit both cache columns.
 - SQLite v66 stores Chick weights, YFBM pairs, vent temperatures, Pasgar
   tallies, postmortem tallies/severity, and culled-chick counts as normalized
   `chick_quality_observation` children. Observation shape, key, unit, list
