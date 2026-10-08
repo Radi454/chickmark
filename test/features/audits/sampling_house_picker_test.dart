@@ -488,17 +488,9 @@ void main() {
         'name': 'North House',
       });
 
-      final houseChip = find.byWidgetPredicate(
-        (widget) =>
-            widget is InputChip &&
-            widget.label is Text &&
-            (widget.label as Text).data == 'North House',
-      );
-      final editButton = find.descendant(
-        of: houseChip,
-        matching: find.byType(IconButton),
-      );
-      tester.widget<IconButton>(editButton).onPressed!();
+      await tester.tap(find.byTooltip('Sampling actions'));
+      await pumpSampling(tester);
+      await tester.tap(find.byKey(ValueKey('sampling-edit-${houseNode.id}')));
       await pumpSampling(tester);
       expect(find.text('Edit house'), findsOneWidget);
       await tester.tap(find.text('Edit house'));

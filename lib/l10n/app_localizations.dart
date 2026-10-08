@@ -755,6 +755,9 @@ const Map<String, String> _ar = {
   'Edit house': 'تعديل العنبر',
   'House code': 'رمز العنبر',
   'Selected sample:': 'العينة المختارة:',
+  'Sampling actions': 'إجراءات أخذ العينات',
+  'Edit {scope}': 'تعديل {scope}',
+  'Select a branch for your measurements.': 'اختر فرعًا لقياساتك.',
   'This machine is not available in the selected hatchery. Edit its scope to select a registered machine before adding numbered options.':
       'هذا الجهاز غير متاح في المفقس المختار. عدّل نطاقه لاختيار جهاز مسجل قبل إضافة الأرقام.',
   'All registered {scope} numbers are already used in this branch.':

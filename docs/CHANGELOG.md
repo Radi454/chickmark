@@ -1,5 +1,12 @@
 # ChickMark Change Log
 
+- 2026-10-07: Replaced the shared sampling chip/tab stack with a responsive
+  branch navigator and tray list, quiet selected-row styling, sample serials,
+  and one menu for selected-path editing and confirmed removal. Preserved
+  registered pickers, paired identities, branch selection, legacy values, and
+  read-only guards; added Arabic labels and narrow RTL coverage. Updated
+  sampling widget tests to use registered catalog fakes and menu interactions.
+
 - 2026-10-06: Granted authenticated and service-role writers execution on the
   deterministic Chick legacy quality flag helper required by the cloud cache
   trigger, without granting anon access or changing the helper's security mode.

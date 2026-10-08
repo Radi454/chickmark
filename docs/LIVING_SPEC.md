@@ -683,11 +683,18 @@ Station save behavior:
   numbered trolley/tray choices use the stored registered counts. Used sibling
   choices are excluded; duplicate identities under the same parent are rejected with a
   duplicate-specific message. Cancel leaves the form and persisted state
-  intact. Scope headings and selected sampling chips use readable surface and
-  on-primary text and action colors. Scope choices render as horizontally
-  scrollable tab rows, with the selected tab filled, bold, and underlined;
-  descendant scope rows are directionally indented under their parent. Each
-  scope has a visible Add action.
+  intact. Shared sampling controls use a branch navigator with neutral scope
+  rows, a subdued selected-row fill, and directionally indented descendant
+  scopes. At widths of at least 600 logical pixels, tray panels show branches
+  beside the tray list; narrower layouts stack them. Native panels show a
+  separate sample list only when the selected branch has multiple samples.
+  Empty ancestor scopes show an inert Pooled label. Each scope retains a
+  visible Add action. A single Sampling actions menu offers identity editing
+  and confirmed removal for the selected path, including paired Setter/Hatcher
+  identities. Tray rows show their sample serial and a selected checkmark;
+  the active sample code remains in the card footer. Read-only/loading states
+  disable selection, additions, and identity actions. Labels and menus are
+  localized, and hierarchy indentation follows Arabic text direction.
   New branches receive a default identified terminal Tray (or native sample)
   and become the active path. Selecting a legacy branch with no terminal leaf
   creates its default terminal sample. Setter is labeled independently except

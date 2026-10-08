@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:hatchaudit/l10n/app_localizations.dart';
 import 'package:hatchaudit/core/theme/app_theme.dart';
 import 'package:hatchaudit/data/models/hatchery_machine_model.dart';
 import 'package:hatchaudit/data/models/panel_sampling_state.dart';
+import 'package:hatchaudit/data/repositories/hatchery_machine_repository.dart';
 import 'package:hatchaudit/data/models/sampling_scope.dart';
 import 'package:hatchaudit/data/repositories/panel_sampling_state_repository.dart';
-import 'package:hatchaudit/data/repositories/hatchery_machine_repository.dart';
 import 'package:hatchaudit/features/audits/providers/audit_provider.dart';
 import 'package:hatchaudit/features/audits/widgets/sampling_scope_controls.dart';
 import 'package:provider/provider.dart';
@@ -242,7 +244,10 @@ void main() {
           theme: AppTheme.light(),
           home: Scaffold(
             body: SingleChildScrollView(
-              child: SamplingScopeControls(panelKey: 'residue_breakout'),
+              child: SamplingScopeControls(
+                panelKey: 'residue_breakout',
+                machineRepository: _MemoryMachineRepository([]),
+              ),
             ),
           ),
         ),
@@ -264,35 +269,137 @@ void main() {
       headers.every((text) => text.style?.color == theme.colorScheme.onSurface),
       isTrue,
     );
-    final pooledChips = tester.widgetList<ChoiceChip>(find.byType(ChoiceChip));
-    expect(
-      pooledChips
-          .where((chip) => chip.selected)
-          .every(
-            (chip) =>
-                (chip.label as Text).style?.color ==
-                theme.colorScheme.onPrimary,
-          ),
-      isTrue,
+    expect(find.byType(InputChip), findsNothing);
+    expect(find.byType(ChoiceChip), findsNothing);
+    expect(find.byTooltip('Sampling actions'), findsOneWidget);
+    final selectedScope = tester.widget<Semantics>(
+      find.byKey(const ValueKey('sampling-node-house-1')),
     );
-    final selectedScope = tester.widget<InputChip>(
-      find.byType(InputChip).first,
-    );
-    expect(selectedScope.selected, isTrue);
-    expect(
-      (selectedScope.label as Text).style?.color,
-      theme.colorScheme.onPrimary,
-    );
-    expect(selectedScope.deleteIconColor, theme.colorScheme.onPrimary);
-    expect(
-      ((selectedScope.avatar as IconButton).icon as Icon).color,
-      theme.colorScheme.onPrimary,
-    );
+    expect(selectedScope.properties.selected, isTrue);
+    expect(find.text('Selected sample: SA1'), findsOneWidget);
     expect(find.text('Add House'), findsOneWidget);
     expect(tester.takeException(), isNull);
     provider.dispose();
     tester.view.resetPhysicalSize();
     tester.view.resetDevicePixelRatio();
+  });
+
+  testWidgets('navigator selects trays and confirms removal through actions', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(900, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final repository = _MemorySamplingRepository();
+    repository.state = PanelSamplingState(
+      sessionId: 'session-1',
+      panelKey: 'residue_breakout',
+      serialHighWatermark: 2,
+      activeSampleId: 'sample-1',
+      nodes: [
+        ...repository.state.nodes,
+        SamplingNode(
+          id: 'tray-2',
+          sessionId: 'session-1',
+          panelKey: 'residue_breakout',
+          parentId: 'house-1',
+          level: SamplingScopeLevel.tray,
+          identityKey: 'T2',
+          identity: const {'code': 'T2'},
+          sampleId: 'sample-2',
+          sampleNumber: 2,
+        ),
+      ],
+    );
+    final provider =
+        AuditProvider(
+          autosaveEnabled: false,
+          panelSamplingStateRepository: repository,
+        )..initialize(
+          AuditContext(
+            auditType: 'Hatch Analysis & Egg Breakouts',
+            customerId: 'customer-1',
+            flockId: 'flock-1',
+            hatcheryId: 'hatchery-1',
+            date: '2026-10-07',
+          ),
+          sessionId: 'session-1',
+          notify: false,
+        );
+    addTearDown(provider.dispose);
+    Widget app(TextDirection direction) => ChangeNotifierProvider.value(
+      value: provider,
+      child: MaterialApp(
+        theme: AppTheme.light(),
+        locale: Locale(direction == TextDirection.rtl ? 'ar' : 'en'),
+        supportedLocales: AppLocalizations.supportedLocales,
+        localizationsDelegates: const [
+          AppLocalizations.delegate,
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        home: Directionality(
+          textDirection: direction,
+          child: Scaffold(
+            body: SingleChildScrollView(
+              child: SamplingScopeControls(
+                panelKey: 'residue_breakout',
+                machineRepository: _MemoryMachineRepository([]),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpWidget(app(TextDirection.ltr));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 20));
+    final house = find.byKey(const ValueKey('sampling-node-house-1'));
+    final tray = find.byKey(const ValueKey('sampling-node-tray-2'));
+    expect(
+      tester.getTopLeft(tray).dx,
+      greaterThan(tester.getTopRight(house).dx),
+    );
+    await tester.tap(tray);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 20));
+    expect(provider.activeSampleIdFor('residue_breakout'), 'sample-2');
+    expect(find.text('Selected sample: SA2'), findsOneWidget);
+    await tester.tap(find.byTooltip('Sampling actions'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.byKey(const ValueKey('sampling-remove-tray-2')));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(find.text('Delete H1?'), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(provider.activeSampleIdFor('residue_breakout'), 'sample-2');
+    tester.view.physicalSize = const Size(320, 1200);
+    await tester.pumpWidget(app(TextDirection.rtl));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 20));
+    expect(
+      tester.getTopLeft(tray).dy,
+      greaterThan(tester.getBottomLeft(house).dy),
+    );
+    expect(find.byTooltip('إجراءات أخذ العينات'), findsOneWidget);
+    provider.setEditMode(false);
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('sampling-node-tray-1')));
+    await tester.pump();
+    expect(provider.activeSampleIdFor('residue_breakout'), 'sample-2');
+    expect(
+      tester
+          .widget<PopupMenuButton<(SamplingNode, bool)>>(
+            find.byType(PopupMenuButton<(SamplingNode, bool)>),
+          )
+          .enabled,
+      isFalse,
+    );
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('setter scope is named Setter outside paired chick quality', (
@@ -604,9 +711,12 @@ void main() {
         value: provider,
         child: MaterialApp(
           theme: AppTheme.light(),
-          home: const Scaffold(
+          home: Scaffold(
             body: SingleChildScrollView(
-              child: SamplingScopeControls(panelKey: 'hatcher_optimizing'),
+              child: SamplingScopeControls(
+                panelKey: 'hatcher_optimizing',
+                machineRepository: _MemoryMachineRepository([]),
+              ),
             ),
           ),
         ),
@@ -667,12 +777,10 @@ void main() {
     await tester.pump(const Duration(milliseconds: 20));
 
     // Tray is a terminal identity in this panel, never a pooled level. The
-    // remaining scopes keep their default Pooled label, but those chips are
-    // inert rather than a control for converting an existing comparison.
-    expect(find.text('Pooled'), findsNWidgets(4));
-    final pooledChips = tester.widgetList<ChoiceChip>(find.byType(ChoiceChip));
-    expect(pooledChips, hasLength(4));
-    expect(pooledChips.every((chip) => chip.onSelected == null), isTrue);
+    // empty scopes keep an inert Pooled label rather than a control for
+    // converting an existing comparison.
+    expect(find.text('Pooled'), findsNWidgets(3));
+    expect(find.byType(ChoiceChip), findsNothing);
     expect(provider.activeSampleIdFor('residue_breakout'), 'sample-1');
     await tester.tap(find.text('Pooled').first);
     await tester.pump();

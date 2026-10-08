@@ -15,7 +15,7 @@ import '../../../providers/customers_provider.dart';
 import '../providers/audit_provider.dart';
 import '../../customers/widgets/hatchery_machine_editor.dart';
 
-/// Shared scope tabs for a single panel. State is loaded lazily so screens
+/// Shared branch navigator for a single panel. State is loaded lazily so screens
 /// which do not render sampling controls never open the sampling database.
 class SamplingScopeControls extends StatefulWidget {
   const SamplingScopeControls({
@@ -109,45 +109,203 @@ class _SamplingScopeControlsState extends State<SamplingScopeControls> {
     String? parentId;
     for (final level in config.levels) {
       childrenByLevel[level] = state.childrenOf(parentId, level);
-      // Pooled levels have no node. Keep the closest selected ancestor so a
-      // later comparison attaches to that branch rather than the root.
+      // Pooled scopes retain the nearest selected ancestor.
       parentId = selectedByLevel[level]?.id ?? parentId;
     }
+    final branchLevels = config.levels
+        .where(
+          (level) =>
+              level != SamplingScopeLevel.tray &&
+              config.pairedLevels?.last != level,
+        )
+        .toList();
+    final colors = Theme.of(context).colorScheme;
+    final hasMultipleNativeSamples =
+        state.childrenOf(parentId, SamplingScopeLevel.sample).length > 1;
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final card = Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  context.tr('Sampling'),
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                _nestedScopes(
+        final sideBySide =
+            constraints.hasBoundedWidth &&
+            constraints.maxWidth >= 600 &&
+            branchLevels.isNotEmpty &&
+            (config.terminalLevel == SamplingScopeLevel.tray ||
+                hasMultipleNativeSamples);
+        final branches = Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Color.alphaBlend(
+              colors.onSurface.withValues(alpha: 0.025),
+              colors.surface,
+            ),
+            border: sideBySide
+                ? BorderDirectional(
+                    end: BorderSide(color: colors.outlineVariant),
+                  )
+                : Border(bottom: BorderSide(color: colors.outlineVariant)),
+          ),
+          child: _nestedScopes(
+            context,
+            provider,
+            state,
+            config,
+            branchLevels,
+            childrenByLevel,
+            selectedByLevel,
+            activeId,
+          ),
+        );
+        final terminal = Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (config.terminalLevel == SamplingScopeLevel.tray)
+                _levelControls(
                   context,
                   provider,
                   state,
                   config,
-                  config.levels
-                      .where((level) => config.pairedLevels?.last != level)
-                      .toList(),
-                  childrenByLevel,
+                  SamplingScopeLevel.tray,
+                  childrenByLevel[SamplingScopeLevel.tray] ?? const [],
+                  selectedByLevel[SamplingScopeLevel.tray],
                   selectedByLevel,
                   activeId,
                 ),
-                if (activeSample != null)
-                  _activeSampleCode(context, provider, state, activeSample),
-              ],
-            ),
+              _terminalSamples(
+                context,
+                provider,
+                state,
+                config,
+                selectedByLevel,
+                activeId,
+              ),
+            ],
           ),
         );
-        return constraints.hasBoundedWidth
-            ? SizedBox(width: constraints.maxWidth, child: card)
-            : card;
+        return Card(
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsetsDirectional.fromSTEB(16, 12, 8, 12),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            context.tr('Sampling'),
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            context.tr(
+                              'Select a branch for your measurements.',
+                            ),
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(color: colors.onSurfaceVariant),
+                          ),
+                        ],
+                      ),
+                    ),
+                    _samplingActions(context, provider, config, chain),
+                  ],
+                ),
+              ),
+              Divider(height: 1, color: colors.outlineVariant),
+              if (sideBySide)
+                IntrinsicHeight(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      SizedBox(width: 240, child: branches),
+                      Expanded(child: terminal),
+                    ],
+                  ),
+                )
+              else ...[
+                if (branchLevels.isNotEmpty) branches,
+                if (config.terminalLevel == SamplingScopeLevel.tray ||
+                    hasMultipleNativeSamples)
+                  terminal,
+              ],
+              if (activeSample != null) ...[
+                Divider(height: 1, color: colors.outlineVariant),
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: _activeSampleCode(
+                    context,
+                    provider,
+                    state,
+                    activeSample,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        );
       },
+    );
+  }
+
+  Widget _samplingActions(
+    BuildContext context,
+    AuditProvider provider,
+    PanelSamplingConfig config,
+    List<SamplingNode> chain,
+  ) {
+    final editable = chain
+        .where(
+          (node) =>
+              node.level != SamplingScopeLevel.sample &&
+              config.pairedLevels?.last != node.level,
+        )
+        .toList();
+    return PopupMenuButton<(SamplingNode, bool)>(
+      tooltip: context.tr('Sampling actions'),
+      enabled:
+          !provider.isReadOnly && !provider.isLoading && editable.isNotEmpty,
+      icon: const Icon(Icons.more_horiz),
+      onSelected: (action) {
+        if (provider.isReadOnly || provider.isLoading) return;
+        final (node, remove) = action;
+        if (remove) {
+          _delete(context, provider, node);
+        } else {
+          _edit(context, provider, node, config);
+        }
+      },
+      itemBuilder: (context) => [
+        for (final node in editable) ...[
+          PopupMenuItem(
+            key: ValueKey('sampling-edit-${node.id}'),
+            value: (node, false),
+            child: Text(
+              context
+                  .tr('Edit {scope}')
+                  .replaceFirst(
+                    '{scope}',
+                    '${_levelLabel(context, node.level, paired: config.pairedLevels?.contains(node.level) ?? false)}: ${_identityLabel(node, config.pairedLevels?.contains(node.level) ?? false)}',
+                  ),
+            ),
+          ),
+          PopupMenuItem(
+            key: ValueKey('sampling-remove-${node.id}'),
+            value: (node, true),
+            child: Text(
+              context
+                  .tr('Remove {scope}')
+                  .replaceFirst(
+                    '{scope}',
+                    '${_levelLabel(context, node.level, paired: config.pairedLevels?.contains(node.level) ?? false)}: ${_identityLabel(node, config.pairedLevels?.contains(node.level) ?? false)}',
+                  ),
+            ),
+          ),
+        ],
+      ],
     );
   }
 
@@ -161,30 +319,8 @@ class _SamplingScopeControlsState extends State<SamplingScopeControls> {
     Map<SamplingScopeLevel, SamplingNode> selectedByLevel,
     String? activeId,
   ) {
-    if (levels.isEmpty) {
-      return config.terminalLevel == SamplingScopeLevel.sample
-          ? _terminalSamples(
-              context,
-              provider,
-              state,
-              config,
-              selectedByLevel,
-              activeId,
-            )
-          : const SizedBox.shrink();
-    }
+    if (levels.isEmpty) return const SizedBox.shrink();
     final level = levels.first;
-    final colors = Theme.of(context).colorScheme;
-    final descendantScopes = _nestedScopes(
-      context,
-      provider,
-      state,
-      config,
-      levels.skip(1).toList(),
-      childrenByLevel,
-      selectedByLevel,
-      activeId,
-    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -199,82 +335,89 @@ class _SamplingScopeControlsState extends State<SamplingScopeControls> {
           selectedByLevel,
           activeId,
         ),
-        // Directional borders also express the branch nesting in Arabic.
-        Container(
-          margin: const EdgeInsetsDirectional.only(start: 4),
-          padding: const EdgeInsetsDirectional.only(start: 8),
-          decoration: BoxDecoration(
-            border: BorderDirectional(
-              start: BorderSide(
-                color: colors.primary.withValues(alpha: 0.3),
-                width: 2,
-              ),
+        if (levels.length > 1)
+          Padding(
+            padding: const EdgeInsetsDirectional.only(start: 12, top: 12),
+            child: _nestedScopes(
+              context,
+              provider,
+              state,
+              config,
+              levels.skip(1).toList(),
+              childrenByLevel,
+              selectedByLevel,
+              activeId,
             ),
           ),
-          child: descendantScopes,
-        ),
       ],
     );
   }
 
-  Widget _scopeTab(
+  Widget _branchChoice(
     BuildContext context, {
+    required String key,
+    required String label,
     required bool selected,
-    required Widget child,
+    required VoidCallback? onPressed,
+    String? serial,
+    bool terminal = false,
   }) {
     final colors = Theme.of(context).colorScheme;
-    final theme = Theme.of(context);
-    final labelStyle = (theme.chipTheme.labelStyle ??
-            theme.textTheme.labelLarge ??
-            const TextStyle())
-        .copyWith(
-      fontWeight: selected ? FontWeight.w700 : FontWeight.w400,
-    );
-    return Container(
-      padding: const EdgeInsets.only(bottom: 4),
-      decoration: BoxDecoration(
-        border: Border(
-          bottom: BorderSide(
-            color: selected ? colors.primary : Colors.transparent,
-            width: 3,
+    return Semantics(
+      key: ValueKey(key),
+      selected: selected,
+      button: true,
+      child: Material(
+        color: selected
+            ? Color.alphaBlend(
+                colors.primary.withValues(alpha: 0.08),
+                colors.surface,
+              )
+            : Colors.transparent,
+        borderRadius: BorderRadius.circular(4),
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(4),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    label,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: selected ? colors.primary : colors.onSurface,
+                      fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                    ),
+                  ),
+                ),
+                if (serial != null) ...[
+                  const SizedBox(width: 8),
+                  Text(
+                    serial,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: selected
+                          ? colors.primary
+                          : colors.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+                const SizedBox(width: 8),
+                Icon(
+                  terminal
+                      ? (selected ? Icons.check : null)
+                      : Icons.chevron_right,
+                  textDirection: Directionality.of(context),
+                  size: 18,
+                  color: selected ? colors.primary : colors.onSurfaceVariant,
+                ),
+              ],
+            ),
           ),
         ),
-      ),
-      child: Theme(
-        data: theme.copyWith(
-          chipTheme: theme.chipTheme.copyWith(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(6),
-            ),
-            side: BorderSide(
-              color: selected ? colors.primary : colors.outlineVariant,
-            ),
-            selectedColor: colors.primary,
-            secondarySelectedColor: colors.primary,
-            disabledColor: selected
-                ? colors.primary
-                : colors.surfaceContainerHighest,
-            backgroundColor: colors.surfaceContainerHighest,
-            labelStyle: labelStyle,
-            secondaryLabelStyle: labelStyle,
-          ),
-        ),
-        child: child,
       ),
     );
   }
-
-  Widget _tabRow(List<Widget> tabs) => SingleChildScrollView(
-    scrollDirection: Axis.horizontal,
-    child: Row(
-      children: [
-        for (var index = 0; index < tabs.length; index++) ...[
-          if (index > 0) const SizedBox(width: 8),
-          tabs[index],
-        ],
-      ],
-    ),
-  );
 
   Widget _levelControls(
     BuildContext context,
@@ -291,119 +434,76 @@ class _SamplingScopeControlsState extends State<SamplingScopeControls> {
     final paired = config.pairedLevels?.contains(level) ?? false;
     final label = _levelLabel(context, level, paired: paired);
     final parentId = _nearestSelectedParentId(config, level, selectedByLevel);
-    final isPaired = config.pairedLevels?.contains(level) ?? false;
-    final displayNodes = isPaired
+    final displayNodes = paired
         ? nodes
               .where((node) => node.level == config.pairedLevels!.first)
               .toList()
         : nodes;
-    return Padding(
-      padding: const EdgeInsets.only(top: 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Wrap(
-            alignment: WrapAlignment.spaceBetween,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            runSpacing: 2,
-            children: [
-              Text(
-                label,
-                style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurface,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Wrap(
+          alignment: WrapAlignment.spaceBetween,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            Text(
+              label,
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                color: Theme.of(context).colorScheme.onSurface,
+              ),
+            ),
+            Tooltip(
+              message: context.tr('Add {scope}').replaceFirst('{scope}', label),
+              child: TextButton(
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                ),
+                onPressed: readOnly
+                    ? null
+                    : () => _add(
+                        context,
+                        provider,
+                        state,
+                        level,
+                        parentId,
+                        config,
+                      ),
+                child: Text(
+                  context.tr('Add {scope}').replaceFirst('{scope}', label),
                 ),
               ),
-              Tooltip(
-                message: context
-                    .tr('Add {scope}')
-                    .replaceFirst('{scope}', label),
-                child: TextButton.icon(
-                  onPressed: readOnly
-                      ? null
-                      : () => _add(
-                          context,
-                          provider,
-                          state,
-                          level,
-                          parentId,
-                          config,
-                        ),
-                  icon: const Icon(Icons.add_circle_outline),
-                  label: Text(
-                    context.tr('Add {scope}').replaceFirst('{scope}', label),
-                  ),
-                ),
+            ),
+          ],
+        ),
+        if (displayNodes.isEmpty && level != SamplingScopeLevel.tray)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Text(
+              context.tr('Pooled'),
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),
-            ],
+            ),
           ),
-          _tabRow([
-            if (level != SamplingScopeLevel.tray)
-              _scopeTab(
-                context,
-                selected: displayNodes.isEmpty,
-                child: ChoiceChip(
-                  label: Text(
-                    context.tr('Pooled'),
-                    style: TextStyle(
-                      color: displayNodes.isEmpty
-                          ? Theme.of(context).colorScheme.onPrimary
-                          : Theme.of(context).colorScheme.onSurface,
-                    ),
-                  ),
-                  selected: displayNodes.isEmpty,
-                  // Pooled is the default while no identity exists. Once a
-                  // comparison identity has been added, it is intentionally
-                  // unavailable: changing modes would orphan or reinterpret
-                  // measurements already attached to that branch.
-                  onSelected: null,
-                ),
-              ),
-            for (final node in displayNodes)
-              _scopeTab(
-                context,
-                selected: node.id == selected?.id,
-                child: InputChip(
-                  label: Text(
-                    _identityLabel(node, isPaired),
-                    style: TextStyle(
-                      color: node.id == selected?.id
-                          ? Theme.of(context).colorScheme.onPrimary
-                          : Theme.of(context).colorScheme.onSurface,
-                    ),
-                  ),
-                  selected: node.id == selected?.id,
-                  deleteIconColor: node.id == selected?.id
-                      ? Theme.of(context).colorScheme.onPrimary
-                      : Theme.of(context).colorScheme.onSurface,
-                  onPressed: readOnly
-                      ? null
-                      : () => _selectBranch(context, provider, state, node),
-                  onDeleted: readOnly
-                      ? null
-                      : () => _delete(context, provider, node),
-                  deleteButtonTooltipMessage: context
-                      .tr('Remove {scope}')
-                      .replaceFirst('{scope}', _identityLabel(node, isPaired)),
-                  avatar: readOnly
-                      ? null
-                      : IconButton(
-                          padding: EdgeInsets.zero,
-                          iconSize: 16,
-                          tooltip: context.tr('Edit identity'),
-                          icon: Icon(
-                            Icons.edit_outlined,
-                            color: node.id == selected?.id
-                                ? Theme.of(context).colorScheme.onPrimary
-                                : Theme.of(context).colorScheme.onSurface,
-                          ),
-                          onPressed: () =>
-                              _edit(context, provider, node, config),
-                        ),
-                ),
-              ),
-          ]),
+        for (final node in displayNodes) ...[
+          if (level == SamplingScopeLevel.tray)
+            Divider(
+              height: 1,
+              color: Theme.of(context).colorScheme.outlineVariant,
+            ),
+          _branchChoice(
+            context,
+            key: 'sampling-node-${node.id}',
+            label: _identityLabel(node, paired),
+            selected: node.id == selected?.id,
+            terminal: level == SamplingScopeLevel.tray,
+            serial: node.sampleNumber == null ? null : 'SA${node.sampleNumber}',
+            onPressed: readOnly
+                ? null
+                : () => _selectBranch(context, provider, state, node),
+          ),
         ],
-      ),
+      ],
     );
   }
 
@@ -415,6 +515,9 @@ class _SamplingScopeControlsState extends State<SamplingScopeControls> {
     Map<SamplingScopeLevel, SamplingNode> selectedByLevel,
     String? activeId,
   ) {
+    if (config.terminalLevel != SamplingScopeLevel.sample) {
+      return const SizedBox.shrink();
+    }
     final parentId = config.levels.isEmpty
         ? null
         : _nearestSelectedParentId(
@@ -425,46 +528,32 @@ class _SamplingScopeControlsState extends State<SamplingScopeControls> {
           );
     final samples = state.childrenOf(parentId, SamplingScopeLevel.sample);
     if (samples.length <= 1) return const SizedBox.shrink();
-    return Padding(
-      padding: const EdgeInsets.only(top: 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            context.tr('Sample'),
-            style: Theme.of(context).textTheme.labelLarge?.copyWith(
-              color: Theme.of(context).colorScheme.onSurface,
-            ),
-          ),
-          _tabRow([
-            for (final sample in samples)
-              _scopeTab(
-                context,
-                selected: sample.sampleId == activeId,
-                child: ChoiceChip(
-                  label: Text(
-                    'SA${sample.sampleNumber ?? ''}',
-                    style: TextStyle(
-                      color: sample.sampleId == activeId
-                          ? Theme.of(context).colorScheme.onPrimary
-                          : Theme.of(context).colorScheme.onSurface,
-                    ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          context.tr('Sample'),
+          style: Theme.of(context).textTheme.labelLarge,
+        ),
+        const SizedBox(height: 8),
+        for (final sample in samples)
+          _branchChoice(
+            context,
+            key: 'sampling-node-${sample.id}',
+            label: 'SA${sample.sampleNumber ?? ''}',
+            terminal: true,
+            selected: sample.sampleId == activeId,
+            onPressed:
+                provider.isReadOnly ||
+                    provider.isLoading ||
+                    sample.sampleId == null
+                ? null
+                : () => provider.selectPanelSample(
+                    widget.panelKey,
+                    sample.sampleId!,
                   ),
-                  selected: sample.sampleId == activeId,
-                  onSelected:
-                      provider.isReadOnly ||
-                          provider.isLoading ||
-                          sample.sampleId == null
-                      ? null
-                      : (_) => provider.selectPanelSample(
-                          widget.panelKey,
-                          sample.sampleId!,
-                        ),
-                ),
-              ),
-          ]),
-        ],
-      ),
+          ),
+      ],
     );
   }
 
@@ -1101,7 +1190,7 @@ class _SamplingScopeControlsState extends State<SamplingScopeControls> {
                   maximum > 0 &&
                   originalNumber > maximum)
                 Padding(
-                  padding: const EdgeInsets.only(top: 8),
+                  padding: EdgeInsets.zero,
                   child: Text(
                     context.tr(
                       'This saved value is above the registered capacity. It remains available for this existing sampling branch.',
@@ -1559,7 +1648,7 @@ class _SamplingScopeControlsState extends State<SamplingScopeControls> {
     );
     final shortSample = 'SA${path.sampleNumber}';
     return Padding(
-      padding: const EdgeInsets.only(top: 8),
+      padding: EdgeInsets.zero,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

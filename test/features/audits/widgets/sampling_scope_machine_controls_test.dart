@@ -196,6 +196,29 @@ class _SamplingRepository extends PanelSamplingStateRepository {
   );
 }
 
+Future<void> _editIdentity(WidgetTester tester, String label) async {
+  await tester.ensureVisible(find.text(label));
+  await tester.tap(find.text(label));
+  for (var frame = 0; frame < 4; frame++) {
+    await tester.pump(const Duration(milliseconds: 50));
+  }
+  await tester.tap(find.byTooltip('Sampling actions'));
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 300));
+  final item = find
+      .textContaining('Edit ')
+      .evaluate()
+      .where(
+        (element) =>
+            element.widget is Text &&
+            (element.widget as Text).data!.endsWith(': $label'),
+      );
+  expect(item, hasLength(1));
+  await tester.ensureVisible(find.byWidget(item.single.widget));
+  await tester.tap(find.byWidget(item.single.widget));
+  await tester.pumpAndSettle();
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -511,18 +534,7 @@ void main() {
       await tester.tap(find.text('Cancel').last);
       await tester.pumpAndSettle();
 
-      final secondTrayChip = find.byWidgetPredicate(
-        (widget) =>
-            widget is InputChip &&
-            widget.label is Text &&
-            (widget.label as Text).data == 'T2',
-      );
-      final edit = find.descendant(
-        of: secondTrayChip,
-        matching: find.byType(IconButton),
-      );
-      tester.widget<IconButton>(edit).onPressed!();
-      await tester.pumpAndSettle();
+      await _editIdentity(tester, 'T2');
       final editField = tester.widget<DropdownButton<String>>(
         find.descendant(
           of: find.byType(AlertDialog),
@@ -583,19 +595,7 @@ void main() {
       );
       expect(provider.activeSampleIdFor('hatcher_optimizing'), 'sample-1');
 
-      final trayChip = find.byWidgetPredicate(
-        (widget) =>
-            widget is InputChip &&
-            widget.label is Text &&
-            (widget.label as Text).data == 'T40',
-      );
-      final editButton = find.descendant(
-        of: trayChip,
-        matching: find.byType(IconButton),
-      );
-      expect(tester.widget<IconButton>(editButton).onPressed, isNotNull);
-      tester.widget<IconButton>(editButton).onPressed!();
-      await tester.pumpAndSettle();
+      await _editIdentity(tester, 'T40');
       expect(find.text('Legacy · T40'), findsOneWidget);
       expect(
         find.text(
@@ -661,18 +661,7 @@ void main() {
         nodes: nodes,
       );
 
-      final trayChip = find.byWidgetPredicate(
-        (widget) =>
-            widget is InputChip &&
-            widget.label is Text &&
-            (widget.label as Text).data == 'T20',
-      );
-      tester
-          .widget<IconButton>(
-            find.descendant(of: trayChip, matching: find.byType(IconButton)),
-          )
-          .onPressed!();
-      await tester.pumpAndSettle();
+      await _editIdentity(tester, 'T20');
       await tester.tap(find.text('Edit capacities'));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextFormField).at(3), '2500');
@@ -822,19 +811,7 @@ void main() {
           nodes: nodes,
         );
 
-        final trayChip = find.byWidgetPredicate(
-          (widget) =>
-              widget is InputChip &&
-              widget.label is Text &&
-              (widget.label as Text).data == legacyCode,
-        );
-        final editButton = find.descendant(
-          of: trayChip,
-          matching: find.byType(IconButton),
-        );
-        expect(tester.widget<IconButton>(editButton).onPressed, isNotNull);
-        tester.widget<IconButton>(editButton).onPressed!();
-        await tester.pumpAndSettle();
+        await _editIdentity(tester, legacyCode);
         expect(find.text('Legacy · $legacyCode'), findsOneWidget);
         await tester.tap(find.text('Save').last);
         await tester.pumpAndSettle();
@@ -969,15 +946,7 @@ void main() {
         machines: _MachineRepository([_setter, _hatcher, secondHatcher]),
         nodes: nodes,
       );
-      final chip = find.byWidgetPredicate(
-        (widget) =>
-            widget is InputChip &&
-            widget.label is Text &&
-            (widget.label as Text).data == 'H-01',
-      );
-      final edit = find.descendant(of: chip, matching: find.byType(IconButton));
-      tester.widget<IconButton>(edit).onPressed!();
-      await tester.pumpAndSettle();
+      await _editIdentity(tester, 'H-01');
       final field = tester.widget<DropdownButton<String>>(
         find.descendant(
           of: find.byType(AlertDialog),
@@ -1056,6 +1025,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('H-01'), findsNothing);
       expect(find.text('H-02'), findsOneWidget);
+      await tester.tap(find.text('H-02'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Cancel').last);
       await tester.pumpAndSettle();
       provider.dispose();
@@ -1123,18 +1094,7 @@ void main() {
         ),
       ],
     );
-    final pairChip = find.byWidgetPredicate(
-      (widget) =>
-          widget is InputChip &&
-          widget.label is Text &&
-          (widget.label as Text).data == 'S-01 / H-01',
-    );
-    tester
-        .widget<IconButton>(
-          find.descendant(of: pairChip, matching: find.byType(IconButton)),
-        )
-        .onPressed!();
-    await tester.pumpAndSettle();
+    await _editIdentity(tester, 'S-01 / H-01');
 
     await tester.tap(
       find.byWidgetPredicate(
